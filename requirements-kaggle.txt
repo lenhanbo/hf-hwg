@@ -1,0 +1,6 @@
+# Kaggle already provides PyTorch, CUDA, NumPy, SciPy, scikit-learn,
+# torchvision, Pillow, matplotlib, PyYAML, h5py and tqdm.
+# Do not add torch/torchvision here: replacing Kaggle's CUDA build can break GPU support.
+munch
+timm
+tensorboard
