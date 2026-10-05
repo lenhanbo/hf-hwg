@@ -152,7 +152,12 @@ corrupted = torch.fft.ifft2(masked_spectrum).real
 
 Paper dùng full complex FFT và mask đối xứng tâm. Không chuyển sang `rfft2` trong baseline đầu tiên để việc áp mask/loss giống code chính thức và dễ đối chiếu.
 
-Code chính thức tạo corruption trong miền ảnh `[0, 1]`, clamp kết quả iFFT về `[0, 1]`, rồi mới normalize để đưa vào backbone. Ảnh FW-GAN đang ở miền `[-1, 1]`, vì vậy wrapper MFM cần đổi miền trước/sau corruption:
+Algorithm 1 của paper tạo ảnh corrupted bằng
+`ifft2(masked_spectrum).real` và không hiện dòng clamp. Source release chính
+thức làm thêm `torch.clamp(x_corrupted, min=0., max=1.)`. Dataloader source
+release đưa ảnh `ToTensor()` trong miền `[0,1]` vào FFT, sau đó model mới
+normalize. Baseline của dự án bám implementation chính thức. Vì ảnh FW-GAN đã
+ở `[-1,1]`, wrapper cần đổi miền trước/sau corruption:
 
 ```python
 x01 = (x_valid + 1.0) / 2.0

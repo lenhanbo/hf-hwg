@@ -501,9 +501,267 @@ Luồng:
 → ifftshift → ifft2.real → clamp [0,1] → [-1,1]
 ```
 
+Algorithm 1 trong paper chỉ ghi `ifft2(...).real`. Tuy nhiên implementation
+chính thức trong `../MFM/models/mfm.py` lấy `.real` rồi tiếp tục
+`torch.clamp(..., min=0., max=1.)`. Dataloader chính thức dùng `ToTensor()` nên
+ảnh đi vào `frequency_transform` ở miền `[0,1]`; model chỉ normalize sau khi
+corrupt. Vì baseline của dự án ưu tiên tái hiện official code, ảnh FW-GAN đang
+ở `[-1,1]` cần đổi sang `[0,1]` trước FFT và đổi lại sau clamp.
+
 Không random filter trong bước này. Gọi rõ `low_pass` và `high_pass` để quan sát kết quả.
 
-**Gate 3:** keep mask toàn 1 tái tạo ảnh với sai số nhỏ; output finite, cùng shape và nằm trong `[-1,1]`.
+**Gate 3:** keep mask toàn 1 tái tạo ảnh với sai số nhỏ; output là tensor real,
+finite, cùng shape và nằm trong `[-1,1]` như input FW-GAN.
+
+### Checklist triển khai `apply_frequency_mask`
+
+Mask ở Gate 2 được xây quanh tâm spectrum, vì vậy không được nhân trực tiếp với
+output thô của `fft2`: trong output thô, thành phần DC nằm ở góc `[0, 0]`.
+Luồng bắt buộc phải khớp với hệ tọa độ của mask:
+
+```text
+image [-1, 1]
+→ đổi sang [0, 1]
+→ fft2 trên H, W
+→ fftshift đưa tần số thấp vào tâm
+→ nhân keep-mask
+→ ifftshift đưa spectrum về quy ước của inverse FFT
+→ ifft2
+→ lấy phần real
+→ clamp [0, 1]
+→ đổi lại [-1, 1]
+```
+
+Output cuối phải là tensor số thực, không phải `complex64`. Tham số `device`
+riêng trong `apply_frequency_mask` không cần thiết nếu image và mask đã được tạo
+trên đúng device; có thể kiểm tra hoặc chuyển mask theo device/dtype của image.
+
+Kết quả review phiên bản đầu:
+
+```text
+identity max error: khoảng 3e-7       → đạt về sai số số học
+output dtype: complex64               → chưa đạt
+high-pass real range: khoảng ±1.11    → chưa nằm trong [-1, 1]
+fftshift/ifftshift: chưa có           → mask và spectrum lệch hệ tọa độ
+```
+
+Test đề nghị cho Gate 3:
+
+```python
+import torch
+
+from mfm.utils import apply_frequency_mask, build_frequency_mask
+
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+torch.manual_seed(7)
+
+image = torch.rand(2, 1, 32, 80, device=device) * 2.0 - 1.0
+keep_all = torch.ones(1, 1, 32, 80, device=device)
+
+identity = apply_frequency_mask(image, keep_all)
+
+assert identity.shape == image.shape
+assert not identity.is_complex()
+assert torch.isfinite(identity).all()
+assert identity.min().item() >= -1.0
+assert identity.max().item() <= 1.0
+assert torch.allclose(identity, image, atol=2e-6)
+
+for filter_type in ("low_pass", "high_pass"):
+    mask = build_frequency_mask(
+        32, 80, 16 / 224, filter_type, device
+    )
+    corrupted = apply_frequency_mask(image, mask)
+    assert corrupted.shape == image.shape
+    assert not corrupted.is_complex()
+    assert torch.isfinite(corrupted).all()
+    assert corrupted.min().item() >= -1.0
+    assert corrupted.max().item() <= 1.0
+
+print("Gate 3 passed")
+```
+
+Nếu giữ tham số `device` trong chữ ký hàm của riêng bạn, truyền thêm `device`
+trong các lời gọi test. Tuy nhiên nên hiểu rằng device thực tế đã nằm trong
+tensor, nên API tối giản của plan chỉ cần `(image, keep_mask)`.
+
+### `.real` và `clamp` có vai trò khác nhau
+
+`torch.clamp(x, min_value, max_value)` chặn mọi giá trị của tensor vào một
+khoảng:
+
+```text
+nhỏ hơn min → thay bằng min
+nằm trong khoảng → giữ nguyên
+lớn hơn max → thay bằng max
+```
+
+Ví dụ:
+
+```python
+x = torch.tensor([-0.2, 0.3, 1.4])
+y = x.clamp(0.0, 1.0)
+# y = [0.0, 0.3, 1.0]
+```
+
+`.real` loại phần ảo rất nhỏ của kết quả iFFT và biến output complex thành ảnh
+real. Nó không giới hạn miền giá trị. Lọc tần số vẫn có thể tạo ringing và khiến
+ảnh sau iFFT vượt miền `[0,1]`, nên official code thực hiện cả hai bước:
+
+```text
+ifft2(...).real → clamp [0,1]
+```
+
+Paper pseudocode lược bỏ dòng clamp, còn source release có dòng này. Baseline
+triển khai ở đây bám source release. Không clamp spectrum phức; chỉ clamp ảnh
+real sau iFFT.
+
+### Vì sao iFFT chỉ giữ `.real`?
+
+Ảnh đầu vào là tensor số thực, nhưng FFT biểu diễn mỗi frequency bằng số phức:
+
+```text
+F(u,v) = phần thực + i × phần ảo
+```
+
+Đối với tín hiệu đầu vào real, spectrum có đối xứng liên hợp (Hermitian
+symmetry). Nếu frequency mask cũng đối xứng, phép nhân mask vẫn giữ tính đối
+xứng này. Vì vậy inverse FFT về mặt toán học phải trả lại một ảnh real.
+
+Trong tính toán floating point, iFFT có thể còn phần ảo rất nhỏ do sai số làm
+tròn, ví dụ cỡ `1e-7`. `.real` bỏ phần dư số học đó để lấy tensor ảnh mà CNN có
+thể xử lý:
+
+```python
+x_complex = torch.fft.ifft2(masked_spectrum)
+x_image = x_complex.real
+```
+
+Không dùng `abs()` thay cho `.real`. `abs()` tính độ lớn
+`sqrt(real² + imag²)`, làm mọi giá trị không âm và thay đổi nội dung tín hiệu;
+nó không phải phép khôi phục ảnh không gian đúng trong pipeline này.
+
+Nếu phần ảo sau iFFT không nhỏ mà có giá trị đáng kể, không nên chỉ che lỗi bằng
+`.real`. Khi đó cần kiểm tra mask có thật sự đối xứng và cặp
+`fftshift`/`ifftshift` có đúng trục hay không. Có thể debug bằng:
+
+```python
+restored_complex = torch.fft.ifft2(masked_spectrum)
+print(restored_complex.imag.abs().max())
+```
+
+### Kết quả double-check Gate 3 với source MFM chính thức
+
+Source chính thức `../MFM/models/mfm.py::frequency_transform` dùng đúng thứ tự:
+
+```text
+fft2 → fftshift → mask → ifftshift → ifft2.real → clamp(0,1)
+```
+
+Các lỗi cần bắt khi đối chiếu:
+
+- Bước sau khi nhân mask phải là `ifftshift`, không phải `fftshift` lần hai.
+  Hai hàm có thể tình cờ cho kết quả giống nhau khi kích thước là số chẵn, nhưng
+  khác nhau khi width lẻ như `53`; dữ liệu chữ viết có width lẻ nên không được
+  dựa vào sự trùng hợp này.
+- Phải lấy `.real` ngay sau `ifft2` rồi mới clamp. PyTorch không hỗ trợ clamp
+  trực tiếp tensor complex và sẽ báo `clamp is not supported for complex types`.
+- Official function nhận ảnh `[0,1]` do dataloader dùng `ToTensor()` trước và
+  chỉ normalize sau corruption. `mfm_collect_fn` của FW-GAN lại trả ảnh
+  `[-1,1]`. Vì vậy wrapper của dự án phải đổi `[-1,1] → [0,1]` trước FFT và đổi
+  `[0,1] → [-1,1]` sau clamp, hoặc quy định thật rõ việc chuyển miền ở caller.
+
+Gate 3 chỉ được đánh dấu pass sau khi test cả width chẵn `80` và width lẻ `53`.
+
+**Trạng thái:** Gate 3 đã pass local cho width `80` và `53`: identity mask tái
+tạo với max error dưới `5e-7`; output real, finite, đúng shape và trong `[0,1]`.
+
+### Quan hệ với amplitude và phase
+
+Một hệ số Fourier phức có hai cách biểu diễn tương đương:
+
+```text
+Cartesian: z = real + i × imag
+Polar:     z = amplitude × exp(i × phase)
+```
+
+Trong đó:
+
+```text
+amplitude = sqrt(real² + imag²)
+phase     = atan2(imag, real)
+```
+
+Amplitude cho biết thành phần tần số mạnh đến mức nào. Phase cho biết vị trí/
+sự căn chỉnh của thành phần đó và rất quan trọng đối với hình dạng, cạnh và bố
+cục ảnh.
+
+MFM nhân toàn bộ hệ số phức với binary mask:
+
+```text
+mask = 1 → giữ cả amplitude và phase của frequency đó
+mask = 0 → xóa cả amplitude và phase của frequency đó
+```
+
+Nó không tách riêng amplitude để mask và cũng không thay phase của các bin được
+giữ. Khi chạy iFFT, cả real và imaginary của spectrum — tương đương cả
+amplitude và phase — đã được dùng để tổng hợp ảnh không gian.
+
+Vì thế `.real` **sau iFFT** không có nghĩa là bỏ phase. Phase đã tham gia vào
+phép iFFT; `.real` chỉ loại phần ảo dư rất nhỏ của ảnh kết quả. Ngược lại, nếu
+bỏ phase **trước iFFT** và chỉ inverse từ amplitude, cấu trúc ảnh sẽ thay đổi
+mạnh.
+
+Với ảnh real, Hermitian symmetry còn có thể hiểu trong biểu diễn polar là:
+
+```text
+amplitude ở hai frequency đối xứng: bằng nhau
+phase ở hai frequency đối xứng: đối dấu
+```
+
+Mask tròn low/high-pass đối xứng giữ quan hệ này, nên iFFT cho kết quả real về
+mặt lý thuyết.
+
+### `dim=(-2, -1)` trong `fftshift` nghĩa là gì?
+
+Với tensor ảnh PyTorch dạng `[B, C, H, W]`, các chiều có thể được đánh số từ
+trái sang phải hoặc từ phải sang trái:
+
+```text
+shape:       [B,  C,  H,  W]
+index dương:  0   1   2   3
+index âm:    -4  -3  -2  -1
+```
+
+Do đó:
+
+```text
+dim=-2 → chiều H (height)
+dim=-1 → chiều W (width)
+```
+
+Lệnh:
+
+```python
+torch.fft.fftshift(spectrum, dim=(-2, -1))
+```
+
+chỉ sắp xếp lại các frequency theo hai chiều không gian. Nó không trộn các ảnh
+trong batch và không trộn channel.
+
+Ví dụ với spectrum shape `[8, 1, 32, 80]`, `fftshift` chỉ thao tác trên từng ma
+trận `[32,80]` độc lập. Thành phần zero-frequency/DC từ góc được đưa tới gần
+tâm `[16,40]`, đúng hệ tọa độ của circular mask.
+
+Sau khi nhân mask, phải dùng cùng hai chiều khi đảo lại:
+
+```python
+torch.fft.ifftshift(masked_spectrum, dim=(-2, -1))
+```
+
+Không bỏ đối số `dim` trong trường hợp này. Nếu shift tất cả chiều, PyTorch còn
+dịch cả batch và channel, không phải thao tác mong muốn của lọc ảnh.
 
 ## Giai đoạn 4 — FrequencyMasker cho batch
 
@@ -512,6 +770,703 @@ Sau khi hai hàm thuần đã đúng, mới đóng gói class:
 ```python
 class FrequencyMasker(nn.Module):
     ...
+```
+
+### Mục tiêu của class
+
+Hai hàm ở Gate 2–3 chỉ xử lý một kích thước ảnh cụ thể. Batch FW-GAN có padding
+và mỗi ảnh có raw width khác nhau. `FrequencyMasker` chịu trách nhiệm lặp qua
+từng sample, chỉ FFT phần ảnh thật và giữ nguyên padding.
+
+Source MFM chính thức dùng `FreqMaskGenerator.__call__()` để Bernoulli sample
+low/high-pass cho từng sample. Bản FW-GAN làm tương tự, nhưng phải render lại
+mask theo raw width của từng ảnh thay vì dùng mask vuông `224×224` cố định.
+
+### Thiết kế `__init__`
+
+Class trong `mfm/modules.py` phải kế thừa `nn.Module` — viết hoa và không dùng
+`nn.modules`:
+
+```python
+class FrequencyMasker(nn.Module):
+```
+
+`__init__` lưu tối thiểu:
+
+```text
+radius_ratio
+low_pass_probability, mặc định 0.5
+```
+
+Chưa cần parameter học được. Gọi `super().__init__()` như mọi PyTorch module.
+
+Class này cần có `forward`. Khi gọi module bằng:
+
+```python
+corrupted_images, specs = frequency_masker(images, raw_img_lens)
+```
+
+PyTorch thực tế chạy `nn.Module.__call__`, rồi `__call__` tự gọi:
+
+```python
+frequency_masker.forward(images, raw_img_lens)
+```
+
+Không override `__call__` vì sẽ bỏ qua hook và cơ chế chuẩn của `nn.Module`.
+`__init__` chỉ lưu cấu hình như radius/probability; toàn bộ xử lý batch nằm
+trong `forward`.
+
+### Vì sao dùng module thay vì dataset transform?
+
+Không bắt buộc phải dùng `nn.Module`. Có thể viết một transform callable nhận
+một ảnh và trả ảnh corrupted. Official MFM cũng tạo mask ở dataset transform,
+nhưng phép FFT/iFFT thật sự được thực hiện trong method của model sau khi batch
+đã được đưa lên GPU.
+
+Với FW-GAN, đặt corruption trong một batch module có các lợi ích:
+
+- FFT/iFFT chạy trên GPU thay vì chạy CPU trong từng DataLoader worker.
+- Training loop giữ đồng thời ảnh sạch làm target và ảnh corrupted làm input.
+- Module trả mask/spec cùng lúc để frequency loss dùng lại chính xác mask đó.
+- Có thể điều khiển seed khác nhau cho train và validation.
+- Dễ log số sample low/high-pass và đổi cấu hình mà không sửa dataset.
+- Dataset tiếp tục có nhiệm vụ duy nhất là đọc ảnh/label/writer và collate.
+
+Nếu làm transform trước collate, transform phải trả thêm clean image,
+corrupted image và mask. Vì ảnh có width khác nhau, các mask cũng khác shape;
+collate lại phải biết cách pad hoặc giữ list mask. Điều này đẩy logic MFM vào
+dataset và làm pipeline khó tách biệt hơn.
+
+Vì vậy `FrequencyMasker(nn.Module)` là lựa chọn tổ chức code, không phải layer có
+weight học được. Nó đóng gói một phép biến đổi batch chạy trên device. Nếu sau
+này profiling cho thấy FFT CPU trong transform tốt hơn, có thể đổi thiết kế,
+nhưng baseline hiện tại ưu tiên module để dễ kiểm tra và tái sử dụng mask cho
+loss.
+
+### Height cố định ở đâu?
+
+FW-GAN dùng chiều cao ảnh `32` tại:
+
+```text
+lib/path_config.py: ImgHeight = 32
+configs/fw_gan_iam.yml: img_height: 32
+configs/fw_gan_vn.yml: img_height: 32
+```
+
+HDF5 lưu các ảnh cùng height và width biến đổi. Trong `mfm_collect_fn`, height
+được đọc từ dữ liệu thật bằng:
+
+```python
+imgHeight = imgs[0].shape[-2]
+```
+
+Do đó batch thường có shape `[B,1,32,padded_W]`. Tuy nhiên
+`FrequencyMasker` không nên hard-code số `32`; nên lấy trực tiếp từ tensor:
+
+```python
+height = images.size(-2)
+# hoặc sau khi crop:
+height = valid.size(-2)
+```
+
+Sau đó truyền `height` và raw `width` vào `build_frequency_mask`. Cách này vẫn
+đúng với cấu hình hiện tại và không làm module hỏng nếu sau này test bằng height
+khác.
+
+### Code tham khảo `FrequencyMasker`
+
+Đây là implementation tham khảo cho `mfm/modules.py`. Hãy đối chiếu từng bước
+với luồng phía trên thay vì chỉ chép nguyên khối:
+
+```python
+import torch
+from torch import nn
+
+from mfm.utils import apply_frequency_mask, build_frequency_mask
+
+
+class FrequencyMasker(nn.Module):
+    def __init__(self, radius_ratio=16 / 224, low_pass_probability=0.5):
+        super().__init__()
+
+        if not 0.0 <= low_pass_probability <= 1.0:
+            raise ValueError("low_pass_probability must be in [0, 1]")
+
+        self.radius_ratio = radius_ratio
+        self.low_pass_probability = low_pass_probability
+
+    def forward(self, images, raw_img_lens):
+        if images.ndim != 4:
+            raise ValueError("images must have shape [B, C, H, W]")
+
+        if raw_img_lens.numel() != images.size(0):
+            raise ValueError("raw_img_lens must contain one width per image")
+
+        corrupted_images = images.clone()
+        specs = []
+
+        # Sample một lần cho cả batch, nhưng mỗi sample có lựa chọn riêng.
+        random_values = torch.rand(images.size(0), device=images.device)
+
+        for i in range(images.size(0)):
+            width = int(raw_img_lens[i].item())
+
+            if width <= 0 or width > images.size(-1):
+                raise ValueError(
+                    f"invalid raw width {width} for padded width {images.size(-1)}"
+                )
+
+            valid = images[i:i + 1, :, :, :width]
+            height = valid.size(-2)
+
+            if random_values[i].item() < self.low_pass_probability:
+                filter_type = "low_pass"
+            else:
+                filter_type = "high_pass"
+
+            mask = build_frequency_mask(
+                height=height,
+                width=width,
+                radius_ratio=self.radius_ratio,
+                filter_type=filter_type,
+                device=images.device,
+            )
+
+            # FW-GAN image [-1,1] → official MFM input [0,1].
+            valid_01 = (valid + 1.0) / 2.0
+            corrupted_01 = apply_frequency_mask(valid_01, mask)
+
+            # Official MFM output [0,1] → FW-GAN image [-1,1].
+            corrupted_valid = corrupted_01 * 2.0 - 1.0
+
+            # Chỉ ghi vùng thật; padding trong clone không đổi.
+            corrupted_images[i:i + 1, :, :, :width] = corrupted_valid
+
+            specs.append({
+                "filter_type": filter_type,
+                "radius_ratio": self.radius_ratio,
+                "mask": mask,
+            })
+
+        return corrupted_images, specs
+```
+
+Các điểm cần hiểu trong code mẫu:
+
+- `random_values` có `B` phần tử, nên từng sample chọn filter độc lập.
+- `valid_01` mới được đưa vào hàm bám official MFM.
+- `specs` là list vì mask có width khác nhau, không thể stack trực tiếp.
+- Mask trong `specs[i]` chính là mask đã dùng cho sample `i`; Gate 5 không tạo
+  mask mới.
+- Module không có optimizer parameter; `nn.Module` chỉ đóng gói forward/device
+  pipeline.
+
+### Vì sao có `(valid + 1) / 2`, official code có không?
+
+Đây là phép đổi miền giá trị từ `[-1,1]` về `[0,1]`:
+
+```text
+valid = -1 → (-1 + 1) / 2 = 0
+valid =  0 → ( 0 + 1) / 2 = 0.5
+valid =  1 → ( 1 + 1) / 2 = 1
+```
+
+FW-GAN tạo tensor bằng `ToTensor()` rồi
+`Normalize(mean=0.5, std=0.5)`. Phép normalize đó biến pixel gốc `[0,1]` thành:
+
+```text
+(x - 0.5) / 0.5 = 2x - 1
+```
+
+Do đó phép nghịch đảo là:
+
+```text
+x = (valid + 1) / 2
+```
+
+Official `frequency_transform` không có dòng này vì official dataloader chỉ
+gọi `ToTensor()` trước FFT, nên input của nó đã ở `[0,1]`. Official model clamp
+ảnh corrupted trong `[0,1]`, rồi mới gọi ImageNet normalization.
+
+Sau khi dùng official-style corruption, adapter FW-GAN đổi ngược lại:
+
+```python
+corrupted_valid = corrupted_01 * 2.0 - 1.0
+```
+
+Hai phép đổi miền này không thay đổi ý nghĩa mask; chúng chỉ nối đúng preprocessing
+của hai codebase.
+
+### FW-GAN normalize ở đâu trong pipeline?
+
+`lib/datasets.py::get_dataset` cấu hình:
+
+```python
+transforms = [ToTensor(), Normalize([0.5], [0.5])]
+```
+
+`Hdf5Dataset.__getitem__` thực thi transform trước khi trả sample:
+
+```python
+img = Image.fromarray(img, mode="L")
+img = self.transforms(img)
+return img, label, writer_id
+```
+
+Vì vậy thứ tự thực tế là:
+
+```text
+HDF5 uint8 [0,255]
+→ PIL grayscale
+→ ToTensor: float [0,1]
+→ Normalize(0.5,0.5): float [-1,1]
+→ mfm_collect_fn: pad và tạo batch
+→ FrequencyMasker nhận batch [-1,1]
+```
+
+`mfm_collect_fn` không normalize; nó chỉ gom/pad các tensor đã normalize từ
+`__getitem__`. Do đó trước khi vào `FrequencyMasker`, ảnh FW-GAN đã normalize
+rồi. `(valid + 1)/2` là bước tạm đảo normalization để tái hiện cách official
+MFM corrupt ảnh `[0,1]`.
+
+### Vòng `for` có chậm không?
+
+Có overhead: batch size `B=8` sẽ gọi FFT/iFFT tám lần thay vì một lần. Nhưng
+vòng lặp là cách baseline đúng nhất vì các sample có raw width khác nhau; FFT
+`32×53` và FFT `32×78` không thể stack thành một phép FFT batch duy nhất mà
+không padding hoặc resize.
+
+Không FFT trực tiếp tensor padded để bỏ vòng lặp. Padding tham gia vào spectrum
+và thay đổi mục tiêu MFM. Cũng không resize tất cả ảnh về một width chỉ để tăng
+tốc ở baseline, vì đó là một thay đổi phương pháp.
+
+Với cấu hình ban đầu `batch_size=8`, height `32` và ảnh word tương đối nhỏ, nên
+ưu tiên correctness trước rồi benchmark trên Kaggle. Backbone thường tốn nhiều
+tính toán hơn các FFT nhỏ này, nhưng phải đo thay vì đoán.
+
+Hai lưu ý tránh overhead không cần thiết:
+
+- Giữ `raw_img_lens` trên CPU nếu nó chỉ dùng để lấy Python `width`; gọi
+  `.item()` trên tensor CUDA trong mỗi vòng có thể gây đồng bộ CPU–GPU.
+- Có thể sample danh sách low/high trên CPU bằng một `torch.Generator` có seed,
+  rồi chỉ tạo mask/FFT trên GPU.
+
+Nếu profiling sau này cho thấy vòng lặp là bottleneck, tối ưu an toàn đầu tiên
+là group các sample có cùng raw width và FFT chúng cùng batch:
+
+```text
+width 64: indices [0,3,7] → một FFT batch
+width 80: indices [1,4]   → một FFT batch
+```
+
+Nếu gần như mọi width đều khác nhau, có thể bucket dataset theo width để tăng
+số sample cùng kích thước. Đây là tối ưu sau Gate 4; chưa làm trước khi test
+padding và loss đúng.
+
+### Checklist debug implementation Gate 4
+
+Các lỗi Python/PyTorch thường gặp khi tự viết class:
+
+- Import trong package phải là `from mfm.utils import ...` hoặc
+  `from .utils import ...`; `from utils import ...` sẽ tìm module top-level và
+  có thể báo `No module named 'utils'`.
+- Tên class nên khớp chỗ gọi: `FrequencyMasker`, không phải
+  `frequency_masker` nếu test/import dùng CamelCase.
+- Gọi constructor cha bằng `super().__init__()`, không phải `super.__init__()`.
+- Height là `images.size(-2)`. `images[-2]` là indexing theo batch, không phải
+  truy cập dimension `-2`.
+- Width dùng để slice nên đổi rõ thành Python int:
+  `int(raw_img_lens[i].item())`.
+- Trong method, probability đã lưu phải truy cập bằng `self.p` hoặc đặt tên rõ
+  `self.low_pass_probability`; biến `p` riêng không tồn tại trong `forward`.
+- Dùng random của PyTorch thay vì `np.random.rand()` để
+  `torch.manual_seed()` kiểm soát được tính tái lập.
+- Phép đổi `[0,1] → [-1,1]` là `x * 2 - 1`. Biểu thức
+  `(x - 0.5) * 0.5` chỉ tạo miền `[-0.25,0.25]` và không phải inverse của
+  Normalize `(0.5,0.5)`.
+
+Sửa theo đúng thứ tự import → constructor → shape → probability → đổi miền,
+rồi mới chạy test padding/spec/seed để lỗi đầu không che các lỗi phía sau.
+
+### Trạng thái Gate 4 và test trên Kaggle
+
+Logic hiện tại đã pass local cho shape, finite, range, padding, mask theo raw
+width và tính tái lập. Tên class trong code hiện là `frequency_masker`; nên đổi
+thành `FrequencyMasker` để khớp plan và convention Python. Nếu chưa đổi tên,
+câu import trong test phải dùng đúng tên viết thường hiện tại.
+
+Sau khi đổi tên class, tạo `test/test_frequency_masker.py`:
+
+```python
+import torch
+
+from mfm.modules import FrequencyMasker
+
+
+assert torch.cuda.is_available(), "Kaggle GPU is not enabled"
+device = torch.device("cuda")
+
+# Batch giả đã pad tới width 80, miền FW-GAN [-1,1].
+images = torch.rand(2, 1, 32, 80, device=device) * 2.0 - 1.0
+raw_img_lens = torch.tensor([53, 78])  # giữ CPU là đủ
+
+images[0, :, :, 53:] = -1.0
+images[1, :, :, 78:] = -1.0
+
+masker = FrequencyMasker(
+    radius_ratio=16 / 224,
+    p=0.5,
+).to(device)
+
+# Chạy hai lần với cùng seed.
+torch.manual_seed(123)
+torch.cuda.manual_seed_all(123)
+first, first_specs = masker(images, raw_img_lens)
+
+torch.manual_seed(123)
+torch.cuda.manual_seed_all(123)
+second, second_specs = masker(images, raw_img_lens)
+
+assert first.shape == images.shape
+assert first.device == device
+assert torch.isfinite(first).all()
+assert first.min().item() >= -1.0
+assert first.max().item() <= 1.0
+
+# Padding phải giữ nguyên tuyệt đối.
+assert torch.equal(first[0, :, :, 53:], images[0, :, :, 53:])
+assert torch.equal(first[1, :, :, 78:], images[1, :, :, 78:])
+
+# Mỗi sample có mask theo đúng raw width và nằm trên GPU.
+assert len(first_specs) == 2
+assert first_specs[0]["mask"].shape == (1, 1, 32, 53)
+assert first_specs[1]["mask"].shape == (1, 1, 32, 78)
+assert first_specs[0]["mask"].device == device
+assert first_specs[1]["mask"].device == device
+
+# Cùng seed phải cho cùng filter và output.
+assert torch.equal(first, second)
+assert [item["filter_type"] for item in first_specs] == [
+    item["filter_type"] for item in second_specs
+]
+
+print("Gate 4 passed on", torch.cuda.get_device_name(0))
+print([
+    (item["filter_type"], tuple(item["mask"].shape))
+    for item in first_specs
+])
+```
+
+Commit/push file code và test lên GitHub, sau đó chạy trong Kaggle Notebook:
+
+```python
+%cd /kaggle/working/hf-hwg
+!git pull --ff-only
+!PYTHONPATH=/kaggle/working/hf-hwg python test/test_frequency_masker.py
+```
+
+Kết quả đạt phải có `Gate 4 passed on ...` và hai mask lần lượt có width `53`,
+`78`. Nếu vẫn giữ class viết thường, thay dòng import/khởi tạo trong test cho
+khớp; tuy nhiên đổi class sang CamelCase là lựa chọn nên dùng trước khi sang
+Gate 5.
+
+### Thiết kế `forward(images, raw_img_lens)`
+
+Input:
+
+```text
+images.shape      = [B, 1, H, padded_W], miền [-1,1]
+raw_img_lens      = [B], ví dụ [53,78]
+padding bên phải  = -1
+```
+
+Luồng cần tự triển khai:
+
+```text
+1. clone images thành corrupted_images
+2. tạo list rỗng để lưu mask/spec của từng sample
+3. lặp i từ 0 đến B-1
+4. lấy width = raw_img_lens[i]
+5. crop valid = images[i:i+1, :, :, :width]
+6. sample low_pass/high_pass theo Bernoulli(p)
+7. build mask có shape [1,1,H,width]
+8. đổi valid từ [-1,1] sang [0,1]
+9. gọi apply_frequency_mask(valid_01, mask)
+10. đổi corrupted valid từ [0,1] lại [-1,1]
+11. ghi chỉ vùng :width vào corrupted_images
+12. lưu mask/spec để Gate 5 dùng lại cho loss
+13. return corrupted_images và danh sách mask/spec
+```
+
+Không gọi FFT trên toàn `padded_W`, vì padding `-1` sẽ trở thành tín hiệu giả
+trong spectrum. Khởi tạo output bằng `images.clone()` giúp vùng ngoài raw width
+giữ nguyên `-1`.
+
+### “Crop theo `raw_img_lens`” cụ thể là gì?
+
+`mfm_collect_fn` phải pad mọi ảnh trong batch tới cùng width để tạo tensor. Ví
+dụ hai ảnh có width thật `53` và `78` được đặt trong batch rộng `80`:
+
+```text
+images.shape = [2, 1, 32, 80]
+raw_img_lens = [53, 78]
+
+sample 0: cột 0..52 là ảnh thật, cột 53..79 là padding
+sample 1: cột 0..77 là ảnh thật, cột 78..79 là padding
+```
+
+Crop ở đây không resize và không cắt file ảnh vĩnh viễn. Nó chỉ lấy một tensor
+view chứa vùng hợp lệ của sample đang xét:
+
+```python
+width = int(raw_img_lens[i].item())
+valid = images[i:i + 1, :, :, :width]
+```
+
+Với `i=0`:
+
+```text
+width       = 53
+valid.shape = [1, 1, 32, 53]
+```
+
+Với `i=1`:
+
+```text
+width       = 78
+valid.shape = [1, 1, 32, 78]
+```
+
+Dùng `i:i+1` thay cho `i` để giữ chiều batch bằng `1`. Nếu dùng `images[i]`,
+shape sẽ thành `[1,32,width]` và không còn hợp đồng ảnh `[B,C,H,W]` rõ ràng.
+
+Chi tiết quy tắc indexing:
+
+```text
+images.shape              = [B,C,H,W]
+images[i].shape           = [C,H,W]      # integer index xóa chiều B
+images[i:i+1].shape       = [1,C,H,W]    # slice giữ chiều B
+```
+
+Các hàm MFM đang dùng hợp đồng tensor 4D. `build_frequency_mask` trả mask
+`[1,1,H,W]`, còn `apply_frequency_mask` được hiểu là nhận image `[B,C,H,W]`.
+Giữ batch dimension giúp shape đầu vào/đầu ra nhất quán ngay cả khi xử lý một
+sample.
+
+Nếu dùng `images[i]`, phép nhân với mask 4D đôi khi vẫn chạy do broadcasting và
+âm thầm thêm lại một chiều. Code như vậy dễ che lỗi shape và khó đọc. Dùng
+`i:i+1` làm rõ rằng đây là một mini-batch có batch size bằng `1`:
+
+```text
+valid: [1,C,H,W]
+mask:  [1,1,H,W]
+out:   [1,C,H,W]
+```
+
+Mask cho mỗi sample phải được tạo theo đúng shape spatial của `valid`:
+
+```text
+sample 0 mask: [1,1,32,53]
+sample 1 mask: [1,1,32,78]
+```
+
+Sau khi corrupt vùng valid, ghi nó về đúng lát cắt trong output đã clone:
+
+```python
+corrupted_images = images.clone()  # thực hiện một lần trước vòng lặp
+
+# bên trong vòng lặp
+corrupted_images[i:i + 1, :, :, :width] = corrupted_valid
+```
+
+Không ghi vào `width:` nên padding giữ nguyên:
+
+```text
+sample 0: corrupted_images[..., 53:] vẫn bằng -1
+sample 1: corrupted_images[..., 78:] vẫn bằng -1
+```
+
+Nếu FFT cả width `80`, các cột padding sẽ bị coi là nội dung thật. Chúng làm
+thay đổi spectrum và khiến bài toán của ảnh width `53` phụ thuộc vào lượng
+padding `27` cột. Crop trước FFT giúp mỗi ảnh được phân tích đúng theo kích
+thước gốc của nó.
+
+### Input của `FrequencyMasker` đến từ đâu?
+
+`FrequencyMasker` không tự đọc HDF5. Input của nó đến từ `DataLoader` qua chuỗi:
+
+```text
+train.hdf5
+→ Hdf5Dataset.__getitem__
+→ danh sách sample (image, label, writer_id)
+→ Hdf5Dataset.mfm_collect_fn
+→ một batch đã pad
+→ training loop
+→ FrequencyMasker(images, raw_img_lens)
+```
+
+`Hdf5Dataset.__getitem__` trả một sample:
+
+```text
+image:     [1,H,W] sau ToTensor + Normalize, miền [-1,1]
+label:     [label_length]
+writer_id: một số nguyên
+```
+
+`DataLoader` tự gom nhiều sample và gọi `mfm_collect_fn`. Batch trả về có thứ
+tự hiện tại:
+
+```python
+(
+    images,
+    pad_img_lens,
+    raw_img_lens,
+    labels,
+    label_lens,
+    writer_ids,
+)
+```
+
+Trong training loop MFM-S sau này, luồng gọi sẽ có dạng:
+
+```python
+for batch in train_loader:
+    images, pad_img_lens, raw_img_lens, labels, label_lens, writer_ids = batch
+
+    images = images.to(device)
+    raw_img_lens = raw_img_lens.to(device)
+
+    corrupted_images, specs = frequency_masker(images, raw_img_lens)
+```
+
+Đây chỉ là minh họa nơi input được nối vào; chưa cần viết training loop ở Gate
+4. Trong class hiện tại chỉ cần giả định caller đưa:
+
+```text
+images:        tensor [B,1,H,padded_W] trong [-1,1]
+raw_img_lens:  tensor [B] chứa width thật
+```
+
+Các trường `labels`, `label_lens` và `writer_ids` chưa dùng trong baseline
+MFM-S. `pad_img_lens` mô tả width đã làm tròn cho kiến trúc, còn FFT và loss
+phải dùng `raw_img_lens`.
+
+### Official MFM có `FrequencyMasker` này chưa?
+
+Không có class xử lý variable-width giống dự án này. Official repo có ba mảnh
+tương ứng nhưng tách ở các nơi khác:
+
+1. `../MFM/data/data_mfm.py::FreqMaskGenerator` tạo mask vuông cố định theo
+   `input_size=224` và Bernoulli sample low/high-pass.
+2. `MFMTransform.__call__` trả mask cùng từng ảnh; ảnh đã được
+   `RandomResizedCrop` về cùng kích thước vuông.
+3. `../MFM/models/mfm.py::frequency_transform` nhận cả batch có cùng `H,W`, áp
+   FFT/mask/iFFT một lần trên tensor batch.
+
+Official ImageNet pipeline không có:
+
+```text
+raw_img_lens
+ảnh variable-width
+padding bên phải
+crop từng sample trước FFT
+mask có width khác nhau trong cùng batch
+```
+
+Do đó `FrequencyMasker` của FW-GAN là lớp adapter cần tự viết, không phải một
+class có thể copy nguyên từ official repo. Phần phải bám official là:
+
+```text
+Bernoulli chọn low/high
+fft2 → fftshift → mask → ifftshift → ifft2.real → clamp
+```
+
+Phần mở rộng chỉ để tương thích dữ liệu FW-GAN là:
+
+```text
+lặp từng sample → crop raw width → render mask đúng width
+→ đổi miền [-1,1]/[0,1] → ghi lại batch và giữ padding
+```
+
+### Tóm tắt vai trò của module
+
+Có thể hình dung `FrequencyMasker` như sau:
+
+```text
+batch đã pad từ mfm_collect_fn
+→ lấy từng vùng ảnh thật
+→ tạo và áp frequency mask
+→ ghi vùng corrupted trở lại bản clone của batch
+→ trả batch cùng shape và padding không đổi
+```
+
+Nó không nhận danh sách ảnh rời rồi tự tính padding lại. Padding đã được
+`mfm_collect_fn` tạo trước khi module được gọi. Vì output bắt đầu bằng
+`images.clone()`, module chỉ thay vùng `:raw_width`:
+
+```text
+input shape  = [B,1,H,padded_W]
+output shape = [B,1,H,padded_W]
+```
+
+Ví dụ:
+
+```text
+input batch:       [2,1,32,80]
+sample 0 xử lý:    [1,1,32,53]
+sample 1 xử lý:    [1,1,32,78]
+output batch:      [2,1,32,80]
+```
+
+Phần `53:80` của sample 0 và `78:80` của sample 1 không bị ghi đè. Module cũng
+trả mask/spec đã dùng cho từng sample để masked frequency loss ở Gate 5 sử dụng
+đúng cùng vùng tần số.
+
+### Sample low/high-pass
+
+Theo source chính thức, xác suất low-pass là `p`, mặc định `0.5`:
+
+```text
+Bernoulli(p) = 1 → low_pass
+Bernoulli(p) = 0 → high_pass
+```
+
+Dùng random của PyTorch để `torch.manual_seed(seed)` có thể tái tạo lựa chọn.
+Chưa dùng Python `random` hoặc NumPy ở đây.
+
+Vì width khác nhau, không stack các mask thành một tensor cố định. Có thể trả
+list trong đó mỗi phần tử chứa tối thiểu `filter_type`, `radius_ratio` và mask
+của sample tương ứng. Gate 5 phải dùng lại chính mask/spec này; không sample
+mask mới khi tính loss.
+
+### Test Gate 4 bằng tensor giả
+
+Test cần tạo hai ảnh raw width `53`, `78` và pad tới `80`. Các điều kiện:
+
+```python
+assert corrupted.shape == images.shape
+assert torch.isfinite(corrupted).all()
+
+# Padding không được thay đổi
+assert torch.equal(corrupted[0, :, :, 53:], images[0, :, :, 53:])
+assert torch.equal(corrupted[1, :, :, 78:], images[1, :, :, 78:])
+
+# Có đúng một mask/spec cho mỗi sample
+assert len(specs) == 2
+assert specs[0]["mask"].shape == (1, 1, 32, 53)
+assert specs[1]["mask"].shape == (1, 1, 32, 78)
+
+# Vùng ảnh valid trở lại miền FW-GAN
+assert corrupted[:, :, :, :53].min().item() >= -1.0
+assert corrupted[:, :, :, :53].max().item() <= 1.0
+```
+
+Test tính tái lập bằng seed:
+
+```text
+set cùng torch.manual_seed trước hai lần forward
+→ filter_type của từng sample phải giống nhau
+→ corrupted output phải giống nhau
 ```
 
 - Nhận `images` và `raw_img_lens`.

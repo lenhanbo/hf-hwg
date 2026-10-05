@@ -168,7 +168,7 @@ class Hdf5Dataset(Dataset):
 def get_dataset(name, split):
     tag = '_'.join(name.split('_')[:2])
     alphabet_key = 'vnondb' if tag.startswith('vnondb') else 'all'
-    transforms = [ToTensor(), Normalize([0.5], [0.5])]
+    transforms = [ToTensor(), Normalize([0.5], [0.5])] # normalize
     dataset = Hdf5Dataset(data_roots[tag],
                           data_paths[name][split],
                           transforms=Compose(transforms),
