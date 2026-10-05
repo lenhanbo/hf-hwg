@@ -7,8 +7,8 @@ img_1 = torch.zeros(1,32,58)
 img_2 = torch.zeros(1,32,78)
 
 
-label_1 = torch.ones(1,3)
-label_2 = torch.ones(1,4)
+label_1 = torch.tensor([1, 2])
+label_2 = torch.tensor([3, 4, 5])
 
 batch = [
     (img_1, label_1, 1),
