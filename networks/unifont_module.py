@@ -1,3 +1,15 @@
+"""Biến ký tự thành đặc trưng glyph Unifont hoặc embedding học được.
+
+Đầu vào:
+    Alphabet, chỉ số ký tự ``QR``, kích thước đặc trưng đầu ra, thiết bị và tệp
+    ``files/<input_type>.pickle`` chứa ma trận bitmap của glyph.
+Đầu ra:
+    Tensor embedding ký tự đã chiếu tuyến tính; ``LearnableModule`` trả một
+    embedding tham số học được lặp theo batch.
+Tác dụng:
+    Cung cấp biểu diễn hình dạng ký tự làm điều kiện trực quan cho mạng sinh.
+"""
+
 import torch
 import pickle
 import numpy as np

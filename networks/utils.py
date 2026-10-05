@@ -1,3 +1,16 @@
+"""Tiện ích dùng chung khi khởi tạo, huấn luyện và trực quan hóa mạng neural.
+
+Đầu vào:
+    Module PyTorch, cấu hình optimizer/scheduler, tensor độ dài/nhãn/ảnh, chuỗi
+    văn bản, alphabet và các tham số render hoặc cắt ngẫu nhiên.
+Đầu ra:
+    Mạng đã khởi tạo, scheduler, mask/state RNN, chuỗi đã decode, tensor ảnh chữ,
+    one-hot tensor hoặc vùng ảnh được cắt.
+Tác dụng:
+    Nối phần biểu diễn văn bản với tensor ảnh và cung cấp các thao tác quản lý
+    gradient, trọng số và learning rate cho toàn bộ pipeline.
+"""
+
 import functools
 import numpy as np
 from itertools import groupby

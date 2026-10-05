@@ -1,3 +1,16 @@
+"""Các khối self-attention, cross-attention và MLP kiểu Transformer.
+
+Đầu vào:
+    Tensor token dạng ``(batch, số_token, số_kênh)``; cross-attention nhận thêm
+    tensor context, cùng các tham số số head, dropout và spectral normalization.
+Đầu ra:
+    Tensor token cùng kích thước embedding, đã trộn thông tin nội bộ hoặc giữa
+    hai chuỗi và đi qua residual/MLP tùy lớp block.
+Tác dụng:
+    Cung cấp cơ chế chú ý để generator kết hợp đặc trưng nội dung, phong cách và
+    ngữ cảnh theo chuỗi.
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

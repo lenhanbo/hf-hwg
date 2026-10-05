@@ -1,3 +1,16 @@
+"""Thư viện các building block CNN, RNN, normalization và residual có điều kiện.
+
+Đầu vào:
+    Tensor ảnh/chuỗi, số kênh, kiểu activation-normalization-padding, chiều dài
+    sequence và vector điều kiện hoặc tham số adaptive normalization.
+Đầu ra:
+    Tensor đặc trưng đã biến đổi; các helper cuối file gán hoặc đếm tham số cần
+    thiết cho adaptive instance/layer normalization.
+Tác dụng:
+    Cung cấp các lớp cơ sở được backbone, recognizer, style encoder và mạng GAN
+    lắp ghép thành kiến trúc hoàn chỉnh.
+"""
+
 import torch
 import torch.nn.functional as F
 from torch import nn

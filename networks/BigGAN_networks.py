@@ -1,6 +1,19 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT
 
+"""Kiến trúc generator và discriminator dựa trên BigGAN/WaveMLP cho FW-GAN.
+
+Đầu vào:
+    Latent phong cách/nhiễu, nhãn ký tự đã padding, ảnh thật hoặc sinh, chiều dài
+    hợp lệ và cấu hình kiến trúc như số kênh, resolution, attention và dropout.
+Đầu ra:
+    Generator trả ảnh chữ viết tay; discriminator thường trả điểm thật/giả theo
+    chuỗi; discriminator cao tần trả điểm trên các thành phần wavelet.
+Tác dụng:
+    Kết hợp điều kiện nội dung-phong cách để sinh ảnh và dùng hai nhánh phân biệt
+    không gian/tần số nhằm cải thiện cấu trúc lẫn nét bút chi tiết.
+"""
+
 import functools
 
 import torch

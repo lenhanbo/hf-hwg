@@ -1,3 +1,16 @@
+"""InceptionV3 đã hiệu chỉnh để trích đặc trưng tương thích phép tính FID.
+
+Đầu vào:
+    Batch ảnh ``NCHW``, danh sách block cần lấy feature và các cờ resize,
+    normalize, gradient hoặc dùng trọng số FID chuyên biệt.
+Đầu ra:
+    Danh sách feature map tại các block được chọn, thường là vector 2048 chiều
+    sau global average pooling.
+Tác dụng:
+    Cung cấp backbone và các block Inception thay thế tương thích TensorFlow FID
+    để ``fid_kid.py`` so sánh phân phối ảnh thật với ảnh sinh.
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

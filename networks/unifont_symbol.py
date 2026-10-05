@@ -1,3 +1,16 @@
+"""Dựng và biến đổi biểu tượng bitmap/đồ thị dùng để tạo dữ liệu Unifont.
+
+Đầu vào:
+    Ảnh PIL, màu, kích thước lưới, điểm/nét đồ thị, ma trận ký hiệu và tham số
+    biến đổi hình học hoặc template.
+Đầu ra:
+    Ảnh ký hiệu, lưới ảnh, màu RGB, các ``Symbol``/``TemplateSet`` đã biến đổi
+    hoặc danh sách chunk phục vụ tiền xử lý glyph.
+Tác dụng:
+    Mô hình hóa glyph như tập node và nét nối để tạo các biến thể ký hiệu cho
+    nhánh điều kiện Unifont; một số thao tác dùng ``random`` nên không tất định.
+"""
+
 from PIL import Image, ImageDraw
 import numpy as np
 import random

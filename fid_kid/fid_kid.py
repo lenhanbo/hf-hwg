@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
-"""Calculates the Frechet Inception Distance (FID) and The Kernel Inception Distance (KID) to evalulate GANs
-The FID and KID is calculated by assuming that X_1 and X_2 are the activations of
-the pool_3 layer of the inception net for generated samples and real world
-samples respectively.
-Code apapted from https://github.com/bioinf-jku/TTUR and  https://github.com/mbinkowski/MMD-GAN
+"""Tính Fréchet Inception Distance (FID) và Kernel Inception Distance (KID).
+
+Đầu vào:
+    Nguồn batch ảnh thật/ảnh sinh, số batch, chiều rộng ảnh tối đa, thiết bị,
+    InceptionV3 và các tham số số subset/kích thước subset của KID.
+Đầu ra:
+    Activation NumPy, thống kê mean/covariance, hoặc cặp metric KID/FID đo độ
+    tương đồng giữa hai phân phối ảnh.
+Tác dụng:
+    Trích feature pool_3, tính khoảng cách Fréchet và polynomial-kernel MMD để
+    đánh giá định lượng chất lượng GAN. Công thức được chuyển thể từ TTUR và
+    MMD-GAN.
 """
 
 import numpy as np

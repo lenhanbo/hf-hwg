@@ -1,3 +1,15 @@
+"""Kiểm tra nhanh môi trường Kaggle trước khi chạy huấn luyện FW-GAN.
+
+Đầu vào:
+    Không có tham số dòng lệnh; đọc phiên bản Python, hệ điều hành, PyTorch,
+    CUDA và thử import các package được liệt kê trong ``REQUIRED_MODULES``.
+Đầu ra:
+    In báo cáo môi trường ra stdout; tiến trình kết thúc với lỗi nếu thiếu GPU
+    CUDA hoặc dependency bắt buộc.
+Tác dụng:
+    Phát hiện sớm cấu hình Kaggle không phù hợp trước khi tải dữ liệu hay train.
+"""
+
 import importlib
 import os
 import platform

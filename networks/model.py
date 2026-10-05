@@ -1,3 +1,17 @@
+"""Điều phối toàn bộ vòng đời huấn luyện, đánh giá và sinh ảnh của FW-GAN.
+
+Đầu vào:
+    Cấu hình ``Munch``, thư mục log, batch ảnh/nhãn/ID người viết, checkpoint và
+    các cờ điều khiển chế độ sinh hoặc đánh giá.
+Đầu ra:
+    Loss/metric và tensor ảnh trong các bước nội bộ; các API cấp cao ghi log,
+    checkpoint, ảnh sinh, FID/KID và không nhất thiết trả giá trị.
+Tác dụng:
+    ``BaseModel`` quản lý thiết bị, I/O và tiện ích chung; ``AdversarialModel``
+    kết nối G, D, HF-D, encoder phong cách, recognizer, writer classifier và FDL
+    thành pipeline tối ưu adversarial hoàn chỉnh.
+"""
+
 import os
 import cv2
 import numpy as np

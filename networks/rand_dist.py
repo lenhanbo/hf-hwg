@@ -1,3 +1,15 @@
+"""Tạo tensor có khả năng tự lấy mẫu từ các phân phối ngẫu nhiên của mô hình.
+
+Đầu vào:
+    Seed, kích thước tensor, loại phân phối và tham số như mean/variance, miền
+    uniform hoặc số lớp categorical.
+Đầu ra:
+    ``Distribution`` (subclass của ``torch.Tensor``) chứa mẫu latent ``z`` hoặc
+    nhãn ``y`` và có thể được lấy mẫu lại tại chỗ bằng ``sample_``.
+Tác dụng:
+    Chuẩn hóa việc seed và sinh latent/nhãn ngẫu nhiên cho generator BigGAN.
+"""
+
 import torch
 import numpy as np
 from copy import deepcopy

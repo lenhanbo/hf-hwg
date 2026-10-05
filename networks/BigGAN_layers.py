@@ -1,6 +1,16 @@
-''' Layers
-    This file contains various layers for the BigGAN models.
-'''
+"""Các lớp nền tảng có spectral normalization và điều kiện cho BigGAN.
+
+Đầu vào:
+    Tensor ảnh/đặc trưng, vector điều kiện, ma trận trọng số và cấu hình convolution,
+    batch/group normalization, attention hoặc residual block.
+Đầu ra:
+    Tensor đặc trưng đã biến đổi; helper power iteration còn trả singular value
+    và vector dùng để chuẩn hóa phổ trọng số.
+Tác dụng:
+    Cung cấp SNConv/SNLinear/SNEmbedding, attention, conditional batch norm và
+    GBlock/DBlock được ``BigGAN_networks`` dùng để dựng G và D ổn định hơn.
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

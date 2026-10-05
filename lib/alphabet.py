@@ -1,3 +1,16 @@
+"""Quản lý bảng ký tự và chuyển đổi giữa văn bản với nhãn số dùng cho CTC.
+
+Đầu vào:
+    Khóa alphabet, chuỗi hoặc batch chuỗi, tensor chỉ số/độ dài; các hàm từ
+    điển còn nhận đường dẫn lexicon và giới hạn chiều dài từ.
+Đầu ra:
+    Tensor/list nhãn đã encode, chuỗi đã decode, alphabet chuẩn hóa hoặc danh
+    sách từ hợp lệ theo tập ký tự của dataset.
+Tác dụng:
+    Đồng nhất biểu diễn nội dung văn bản giữa dataset, recognizer và generator;
+    đồng thời hỗ trợ lọc lexicon và chuẩn hóa chữ cái đầu từ.
+"""
+
 import unicodedata
 import torch
 

@@ -1,3 +1,16 @@
+"""Điểm vào dòng lệnh để sinh và lưu ảnh chữ viết tay bằng mô hình đã học.
+
+Đầu vào:
+    ``--config`` là tệp YAML cấu hình mô hình/checkpoint; cờ
+    ``--random_lexicon`` yêu cầu dùng từ ngẫu nhiên thay cho nhãn gốc.
+Đầu ra:
+    Không trả về giá trị; ghi các ảnh thật và ảnh sinh ra thư mục đầu ra do
+    ``AdversarialModel.gen_fakes`` quản lý.
+Tác dụng:
+    Khởi tạo mô hình, nạp trọng số nếu checkpoint hợp lệ và chạy quá trình sinh
+    ảnh có điều kiện theo nội dung và phong cách người viết.
+"""
+
 import os
 import argparse
 from lib.utils import yaml2config

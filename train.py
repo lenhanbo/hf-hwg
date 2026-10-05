@@ -1,3 +1,16 @@
+"""Điểm vào dòng lệnh để huấn luyện mô hình sinh chữ viết tay FW-GAN.
+
+Đầu vào:
+    Tham số ``--config`` trỏ tới tệp YAML chứa cấu hình dữ liệu, kiến trúc,
+    thiết bị, checkpoint và siêu tham số huấn luyện.
+Đầu ra:
+    Không trả về giá trị; tạo log/checkpoint trong thư mục ``runs`` theo cấu
+    hình và thời điểm chạy.
+Tác dụng:
+    Đọc cấu hình, khởi tạo ``AdversarialModel``, nạp checkpoint nếu có và tiếp
+    tục vòng lặp huấn luyện từ epoch tương ứng.
+"""
+
 import os
 from datetime import datetime
 import argparse

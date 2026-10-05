@@ -1,3 +1,16 @@
+"""Đọc dataset chữ viết tay HDF5 và ghép các mẫu có chiều rộng biến đổi.
+
+Đầu vào:
+    Thư mục dữ liệu, tên split HDF5, transform, khóa alphabet và các sample
+    ``(image, label, writer_id)`` cần gom thành batch.
+Đầu ra:
+    ``Hdf5Dataset`` hoặc batch gồm ảnh đã padding, chiều dài ảnh, nhãn đã
+    padding, chiều dài nhãn và ID người viết.
+Tác dụng:
+    Giải mã dữ liệu ảnh/Unicode lưu nối tiếp trong HDF5, chuẩn hóa ảnh về tensor
+    và cung cấp collate function phù hợp cho ảnh chữ có độ rộng khác nhau.
+"""
+
 import os, h5py
 import numpy as np
 from PIL import Image

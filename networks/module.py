@@ -1,3 +1,16 @@
+"""Các mạng tác vụ phụ dùng chung quanh generator và discriminator.
+
+Đầu vào:
+    Ảnh chữ viết tay, chiều dài ảnh/chuỗi, cấu hình số kênh/lớp và tùy chọn yêu
+    cầu trích xuất feature trung gian từ shared backbone.
+Đầu ra:
+    Feature map dùng chung, vector phong cách, logits nhận diện người viết hoặc
+    logits OCR theo thời gian cùng chiều dài đầu ra.
+Tác dụng:
+    Triển khai ``SharedBackbone``, ``StyleEncoder``, ``WriterIdentifier`` và
+    ``Recognizer`` để ràng buộc ảnh sinh đúng phong cách lẫn nội dung.
+"""
+
 import torch
 from torch import nn
 from networks.blocks import Conv2dBlock, ActFirstResBlock, DeepBLSTM, DeepGRU, DeepLSTM

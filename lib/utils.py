@@ -1,3 +1,16 @@
+"""Các tiện ích dùng chung cho cấu hình, logging, ảnh và thống kê huấn luyện.
+
+Đầu vào:
+    Đường dẫn YAML/log, tensor ảnh, cấu hình, giá trị loss hoặc tensor cần
+    padding; kiểu đầu vào cụ thể phụ thuộc từng hàm/lớp.
+Đầu ra:
+    Cấu hình ``Munch``, logger, ảnh NumPy, thống kê trung bình, chuỗi mô tả cấu
+    hình hoặc tensor đã padding.
+Tác dụng:
+    Gom các thao tác hạ tầng được entry point và ``AdversarialModel`` dùng lặp
+    lại trong lúc train, đánh giá và ghi kết quả.
+"""
+
 import os
 import logging
 from datetime import datetime

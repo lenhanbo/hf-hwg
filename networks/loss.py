@@ -1,3 +1,16 @@
+"""Frequency Distribution Loss (FDL) cho đặc trưng ảnh thật và ảnh sinh.
+
+Đầu vào:
+    Hai batch ảnh ``x``/``y``, shared backbone và các tham số patch, stride, số
+    phép chiếu, trọng số phase, hệ số upscale và kích thước chunk.
+Đầu ra:
+    Một scalar tensor loss tổng hợp chênh lệch phân phối biên độ và pha trên
+    nhiều tầng đặc trưng.
+Tác dụng:
+    So sánh phân phối patch bằng các phép chiếu ngẫu nhiên theo chunk để giữ chi
+    tiết tần số của nét chữ mà hạn chế bộ nhớ GPU.
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
