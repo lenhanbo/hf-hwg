@@ -1,6 +1,4 @@
-import torch 
-
-
+import torch
 
 def build_frequency_mask(height, width, radius_ratio ,filter_type, device):
     x_center = (width // 2)
@@ -26,5 +24,4 @@ def apply_frequency_mask(img, mask):
     img = torch.fft.ifft2(img).real
     img = torch.clamp(img, min=0, max =1)
     return img
-
 

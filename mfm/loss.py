@@ -2,7 +2,7 @@ import torch
 from torch import nn
 
 class frequency_loss(nn.Module):
-    def __init__(self, loss_gamma = 1):
+    def __init__(self, loss_gamma=1):
         super().__init__()
         self.loss_gamma= loss_gamma
 
@@ -27,7 +27,7 @@ class frequency_loss(nn.Module):
             real_freq = self.tensor2freq(imgs[i:i+1,:,:,:width]) 
             res_freq = self.tensor2freq(resconstructed_imgs[i:i+1,:,:,:width]) 
             loss += self.frequency_distance(real_freq, res_freq, keep_mask)
-        loss = loss / imgs.shape[0]    
+        loss = loss / imgs.shape[0]
         return loss
 
 

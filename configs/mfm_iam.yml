@@ -1,0 +1,40 @@
+device: cuda
+dataset: iam_word
+seed: 123456
+
+training:
+  dset_split: trnval
+  batch_size: 8
+  num_workers: 4
+  epochs: 100
+
+  lr: 1.0e-4
+  min_lr: 1.0e-6
+  warmup_lr: 1.0e-6
+  warmup_epochs: 5
+
+  weight_decay: 0.05
+  grad_clip: 3.0
+
+  optimizer:
+    name: adamw
+    eps: 1.0e-8
+    betas: [0.9, 0.999]
+
+  lr_scheduler:
+    name: cosine
+
+  radius_ratio: 0.0714285714
+  low_pass_probability: 0.5
+
+  output_dir: runs/mfm_iam
+  save_every: 10
+  print_every: 20
+  resume: ""
+
+SharedBackbone:
+  resolution: 16
+  max_dim: 256
+  in_channel: 1
+  dropout: 0.0
+  norm: bn
