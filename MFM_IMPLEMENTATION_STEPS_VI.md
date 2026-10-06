@@ -21,26 +21,6 @@ chạy đúng.
 **Gate 4 hoàn thành khi:** test in `Gate 4 passed on ...`, mask nằm trên CUDA,
 padding không đổi, mask có width `53/78` và cùng seed cho cùng kết quả.
 
-## Giai đoạn 5 — Viết MFM frequency loss
-
-Viết:
-
-```python
-class MaskedFrequencyLoss(nn.Module):
-    ...
-```
-
-- Crop prediction/target bằng `raw_img_lens`.
-- FFT và `fftshift` cả prediction lẫn target.
-- `loss_mask = 1 - keep_mask`.
-- Sai số mỗi bin là khoảng cách Euclidean của complex residual với `gamma=1`.
-- Chỉ average trên vùng bị che.
-
-Không thêm spatial L1, Charbonnier, phase loss riêng hoặc FDL trong baseline.
-
-**Gate 5:** prediction bằng target cho loss gần 0; thay đổi chỉ vùng được giữ
-không đóng góp vào masked loss; backward tạo gradient finite.
-
 ## Giai đoạn 6 — Nối SharedBackbone và prediction head
 
 `SharedBackbone` biến `[B,1,32,W]` thành `[B,256,3,W/8]`.

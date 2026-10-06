@@ -1762,6 +1762,65 @@ nguyên lựa chọn này. Trong `apply_frequency_mask`, source dùng FFT/iFFT m
 theo cặp; đó là phép tạo ảnh corrupted chứ không phải phép đo loss, nên không
 cần đổi chỉ để đồng nhất hình thức.
 
+## Gate 6 — Nối SharedBackbone và reconstruction head
+
+Gate 5 đã pass local với grayscale/RGB, scalar output, backward và padding
+independence. Bước tiếp theo là tạo model MFM-S tối thiểu:
+
+```text
+corrupted image [B,1,32,W]
+→ SharedBackbone
+→ feature map [B,output_dim,h,w]
+→ Conv2d(output_dim,1,kernel_size=1)
+→ bilinear interpolate về [32,W]
+→ reconstruction [B,1,32,W]
+```
+
+Không sửa `SharedBackbone` gốc. Import và dùng lại từ `networks.module`. Forward
+của backbone trả tuple:
+
+```python
+features, _ = backbone(corrupted_images)
+```
+
+Prediction head chỉ cần một `Conv2d 1×1`; resize bằng
+`torch.nn.functional.interpolate(..., mode="bilinear", align_corners=False)`.
+Output size phải lấy động từ input:
+
+```python
+output_size = corrupted_images.shape[-2:]
+```
+
+Không hard-code width và không thêm sigmoid/tanh/clamp vào head. MFM gốc cũng
+để decoder dự đoán trực tiếp; frequency loss sẽ so prediction với clean target
+trong miền normalize của FW-GAN.
+
+Có thể tổ chức hai class:
+
+```text
+MFMReconstructionHead: Conv1×1 + interpolate
+BackboneMFMPretrainer: SharedBackbone + head
+```
+
+Test Gate 6:
+
+```text
+clean batch
+→ FrequencyMasker
+→ BackboneMFMPretrainer
+→ prediction cùng shape clean batch
+→ frequency_loss(prediction, clean, raw_lens, keep_masks)
+→ backward
+```
+
+Điều kiện pass:
+
+- Prediction shape đúng `[B,1,32,padded_W]`.
+- Loss scalar finite.
+- Ít nhất một parameter của `SharedBackbone` có gradient finite.
+- Weight của Conv1×1 head có gradient finite.
+- Loss vẫn crop raw width; padding prediction không cần bằng `-1`.
+
 ### Checklist review lần đầu cho `mfm/loss.py`
 
 Lỗi chạy đầu tiên là gọi `.item()` trên `imgs.shape[-2]`. Các phần tử của

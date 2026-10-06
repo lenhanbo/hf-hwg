@@ -54,6 +54,44 @@ class Hdf5Dataset(Dataset):
 
     def __len__(self):
         return len(self.img_lens)
+    # Method cũ
+    # @staticmethod 
+    # def collect_fn(batch): 
+    #     def _recalc_len(leng, scale):
+    #         tmp = leng % scale
+    #         return leng + scale - tmp if tmp != 0 else leng
+
+    #     imgs, lbs, wids, lb_lens, img_lens, pad_img_lens = [], [], [], [], [], []
+
+    #     for img, lb, wid in batch:
+    #         if isinstance(img, torch.Tensor):
+    #             img = img.numpy()
+    #         imgs.append(img)
+    #         lbs.append(lb)
+    #         wids.append(wid)
+    #         lb_lens.append(len(lb))
+    #         img_lens.append(img.shape[-1])
+    #         pad_img_lens.append(_recalc_len(img.shape[-1], img.shape[-2] // 2))
+
+    #     bz = len(lb_lens)
+    #     imgHeight = imgs[0].shape[-2]
+    #     max_img_len = max(pad_img_lens)
+    #     pad_imgs = -np.ones((bz, 1, imgHeight, max_img_len))
+    #     for i, (img, img_len) in enumerate(zip(imgs, img_lens)):
+    #         pad_imgs[i, 0, :, :img_len] = img
+
+    #     max_lb_len = max(lb_lens)
+    #     pad_lbs = np.zeros((bz, max_lb_len))
+    #     for i, (lb, lb_len) in enumerate(zip(lbs, lb_lens)):
+    #         pad_lbs[i, :lb_len] = lb
+
+    #     imgs = torch.from_numpy(pad_imgs).float()
+    #     img_lens = torch.Tensor(pad_img_lens).int()
+    #     lbs = torch.from_numpy(pad_lbs).int()
+    #     lb_lens = torch.Tensor(lb_lens).int()
+    #     wids = torch.Tensor(wids).long()
+    #     return imgs, img_lens, lbs, lb_lens, wids
+
 
     @staticmethod
     def collect_fn(batch):
@@ -61,76 +99,53 @@ class Hdf5Dataset(Dataset):
             tmp = leng % scale
             return leng + scale - tmp if tmp != 0 else leng
 
-        imgs, lbs, wids, lb_lens, img_lens, pad_img_lens = [], [], [], [], [], []
+        imgs, lbs, wids = [], [], []
+        lb_lens, img_lens = [], []
+        
+        # valid_img_lens = []
 
         for img, lb, wid in batch:
             if isinstance(img, torch.Tensor):
                 img = img.numpy()
-            imgs.append(img)
+
+            new_width = _recalc_len(img.shape[-1], img.shape[-2] // 2)
+            raw_width = img.shape[-1]
+            extra = (new_width - raw_width)//2
+
+            new_img = np.ones((img.shape[-3], img.shape[-2], new_width))
+            new_img[:,:, extra:(extra + raw_width)] = img 
+
+            img_lens.append(new_img.shape[-1])
+            imgs.append(new_img)
             lbs.append(lb)
             wids.append(wid)
             lb_lens.append(len(lb))
-            img_lens.append(img.shape[-1])
-            pad_img_lens.append(_recalc_len(img.shape[-1], img.shape[-2] // 2))
 
         bz = len(lb_lens)
-        imgHeight = imgs[0].shape[-2]
-        max_img_len = max(pad_img_lens)
-        pad_imgs = -np.ones((bz, 1, imgHeight, max_img_len))
+        imgHeight = imgs[0].shape[-2] # 32
+        max_img_len = max(img_lens)
+
+
+        pad_imgs = -np.ones((bz, 1, imgHeight, max_img_len), dtype=np.float32)
+        
         for i, (img, img_len) in enumerate(zip(imgs, img_lens)):
             pad_imgs[i, 0, :, :img_len] = img
 
         max_lb_len = max(lb_lens)
-        pad_lbs = np.zeros((bz, max_lb_len))
-        for i, (lb, lb_len) in enumerate(zip(lbs, lb_lens)):
-            pad_lbs[i, :lb_len] = lb
 
-        imgs = torch.from_numpy(pad_imgs).float()
-        img_lens = torch.Tensor(pad_img_lens).int()
-        lbs = torch.from_numpy(pad_lbs).int()
-        lb_lens = torch.Tensor(lb_lens).int()
-        wids = torch.Tensor(wids).long()
-        return imgs, img_lens, lbs, lb_lens, wids
-
-
-    @staticmethod
-    def mfm_collect_fn(batch):
-        def _recalc_len(leng, scale):
-            tmp = leng % scale
-            return leng + scale - tmp if tmp != 0 else leng
-
-        imgs, lbs, wids = [], [], []
-        lb_lens, raw_img_lens, pad_img_lens = [], [], []
-
-        for img, lb, wid in batch:
-            if isinstance(img, torch.Tensor):
-                img = img.numpy()
-            imgs.append(img)
-            lbs.append(lb)
-            wids.append(wid)
-            lb_lens.append(len(lb))
-            raw_img_lens.append(img.shape[-1])
-            pad_img_lens.append(_recalc_len(img.shape[-1], img.shape[-2] // 2))
-
-        bz = len(lb_lens)
-        imgHeight = imgs[0].shape[-2]
-        max_img_len = max(pad_img_lens)
-        pad_imgs = -np.ones((bz, 1, imgHeight, max_img_len), dtype=np.float32)
-        for i, (img, img_len) in enumerate(zip(imgs, raw_img_lens)):
-            pad_imgs[i, 0, :, :img_len] = img
-
-        max_lb_len = max(lb_lens)
         pad_lbs = np.zeros((bz, max_lb_len), dtype=np.int32)
+
         for i, (lb, lb_len) in enumerate(zip(lbs, lb_lens)):
             pad_lbs[i, :lb_len] = lb
 
         imgs = torch.from_numpy(pad_imgs).float()
-        pad_img_lens = torch.tensor(pad_img_lens, dtype=torch.int32)
-        raw_img_lens = torch.tensor(raw_img_lens, dtype=torch.int32)
+        img_lens = torch.tensor(img_lens,dtype=torch.int32)
+        # pad_img_lens = torch.tensor(pad_img_lens, dtype=torch.int32)
+        # raw_img_lens = torch.tensor(raw_img_lens, dtype=torch.int32)
         lbs = torch.from_numpy(pad_lbs).int()
         lb_lens = torch.tensor(lb_lens, dtype=torch.int32)
         wids = torch.tensor(wids, dtype=torch.long)
-        return imgs, pad_img_lens, raw_img_lens, lbs, lb_lens, wids
+        return imgs, img_lens, lbs, lb_lens, wids
 
     @staticmethod
     def sort_collect_fn(batch):

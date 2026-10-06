@@ -54,7 +54,11 @@ class SharedBackbone(nn.Module):
         layers.extend([
             ActFirstResBlock(df, df, None, 'lrelu', norm, sn=SN_param, dropout=dropout),
             ActFirstResBlock(df, df_out, None, 'lrelu', norm, sn=SN_param, dropout=dropout),
-            nn.MaxPool2d(kernel_size=3, stride=2)
+            nn.Sequential(
+                nn.ReflectionPad2d((0, 0, 1, 1)),
+                nn.MaxPool2d(kernel_size=3, stride=2),
+            )
+
         ])
         df = min([df_out, max_dim])
 
