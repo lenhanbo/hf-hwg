@@ -4,7 +4,7 @@ seed: 123456
 
 training:
   dset_split: trnval
-  batch_size: 16
+  batch_size: 8
   num_workers: 4
   epochs: 100
 
