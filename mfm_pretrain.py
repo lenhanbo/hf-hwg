@@ -6,7 +6,6 @@ if __name__=='__main__':
     parser = argparse.ArgumentParser(
         description="mfm pretraining"
     )
-
     parser.add_argument(
         '--config',
         type=str,

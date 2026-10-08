@@ -165,7 +165,7 @@ thay vì gọi `1 - mask` là `keep_mask`.
 
 ### 4.2. `pretrain_mfm.py`
 
-Code đã được tách thành các file mới. Trạng thái hiện tại:
+Baseline đã được tách thành các file:
 
 - `mfm/optimizer.py`: đã có AdamW và decay/no-decay groups;
 - `mfm/scheduler.py`: đã có cosine scheduler theo iteration;
@@ -173,35 +173,21 @@ Code đã được tách thành các file mới. Trạng thái hiện tại:
 - `mfm/utils.py`: đã chỉ còn hai frequency utilities, không còn circular import;
 - `mfm/pretrain_mfm.py`: đã chứa các hàm training và `main`;
 - `configs/mfm_iam.yml`: đã có block optimizer và scheduler;
-- `mfm_pretrain.py`: hiện đang rỗng.
+- `mfm_pretrain.py`: đã là CLI entrypoint.
 
-Bốn unit test MFM đều đã pass sau khi tách file.
+Bốn unit test MFM đều pass. Training thật trên Kaggle đã chạy tới epoch 20 với
+mean loss khoảng `0.19`, xác nhận data loading, forward/backward, optimizer,
+scheduler, gradient clipping và checkpoint save đều chạy được trên CUDA.
 
-Các lỗi cần sửa tiếp:
+Các việc baseline còn nên xác minh:
 
-1. `optimizer.zero_grad()` đang nằm **sau** `loss.backward()`, nên gradient vừa
-   tính xong bị xóa trước `clip_grad_norm_()` và `optimizer.step()`.
-2. `CosineLRScheduler` của timm phải gọi `step_update(global_step)`, không gọi
-   `scheduler.step()` mà không truyền epoch.
-3. `load_checkpoint()` cần `weights_only=False` vì checkpoint chứa thêm config
-   ngoài tensor/state dict.
-4. `device = cfg.device` tạo chuỗi, nên truy cập `device.type` sẽ lỗi. Phải tạo
-   `torch.device(cfg.device)`.
-5. `os.path.exist` không tồn tại; đúng là `os.path.exists`. Logic resume cũng
-   đang ngược: path không tồn tại thì phải báo lỗi, path tồn tại mới load.
-6. Epoch đang đọc `cfg.epochs` thay vì `cfg.training.epochs`.
-7. `train_one_epoch(model, loader, ...)` dùng biến `loader` chưa được tạo; biến
-   đúng là `train_loader`.
-8. Chưa gọi `os.makedirs(output_dir, exist_ok=True)` trước khi lưu checkpoint.
-9. Root entrypoint `mfm_pretrain.py` đang rỗng.
-10. `mfm/models.py` đang rỗng; chưa import file này ở đâu.
-11. `mfm/frequency_loss.py` là implementation tham khảo đầy đủ, còn pipeline
-   hiện dùng `mfm/loss.py`. Không import lẫn hai class loss.
-
-Ngoài ra, môi trường Python hiện tại chưa cài `scikit-learn`. Vì
-`networks/__init__.py` import phần FID/KID, lệnh `import mfm.pretrain_mfm` dừng ở
-`ModuleNotFoundError: sklearn`. Dependency này đã có trong `requirements.txt`;
-đây là lỗi môi trường, không phải circular import MFM.
+1. Test resume thực sự từ checkpoint epoch 20.
+2. Dùng `cfg.training.print_every` thay vì hard-code `20` trong training loop.
+3. So loss `0.19` với naive reconstruction và validation cố định mask.
+4. Giữ `mfm/models.py` rỗng ngoài import graph hoặc xóa sau khi chắc chắn không
+   dùng.
+5. Không import lẫn `mfm/frequency_loss.py` bản tham khảo với `mfm/loss.py` đang
+   dùng trong baseline.
 
 Không train dài trước khi các mục này được sửa và smoke test pass.
 
@@ -851,42 +837,16 @@ if __name__ == "__main__":
 
 ## 13. Thứ tự triển khai từ trạng thái hiện tại
 
-Không sửa toàn bộ một lần. Làm theo thứ tự:
+Baseline đã qua unit test, Kaggle smoke test và 20 epoch training. Bước tiếp
+theo:
 
-### Bước tiếp theo ngay bây giờ: sửa training loop và `main`
-
-Phần tách module và config đã hoàn thành. Tiếp tục từ training loop:
-
-1. Trong `train_one_epoch`, chuyển
-   `optimizer.zero_grad(set_to_none=True)` lên ngay sau khi đưa ảnh lên device,
-   trước forward. Sau đó đổi `scheduler.step()` thành:
-
-   ```python
-   optimizer.step()
-   scheduler.step_update(global_step)
-   global_step += 1
-   ```
-
-2. Nên thêm `print_every` vào tham số `train_one_epoch` và dùng
-   `cfg.training.print_every`, thay vì hard-code `20`.
-3. Thêm `weights_only=False` vào `torch.load()`.
-4. Sửa lần lượt trong `main`: tạo `torch.device`, tạo output directory, sửa
-   `exists`, sửa logic resume, sửa đường dẫn config epochs và đổi `loader`
-   thành `train_loader`. Code chuẩn nằm ở mục 11.
-5. Hoàn thiện root entrypoint `mfm_pretrain.py` theo mục 12.
-6. Cài dependency của repo trong đúng Python environment nếu vẫn thiếu:
-
-   ```powershell
-   python -m pip install -r requirements.txt
-   ```
-
-7. Chạy syntax check, bốn unit test và thử `import mfm.pretrain_mfm`.
-8. Chạy smoke test 20–100 step.
-9. Test save → restart process → resume.
-10. Chỉ sau đó mới train dài.
-
-`mfm/optimizer.py`, `mfm/scheduler.py` và batch mean trong `mfm/loss.py` đã
-xong ở vòng hiện tại; không cần viết lại chúng trước bước smoke test.
+1. Lưu checkpoint/config/log epoch 20 ra Kaggle output để không mất baseline.
+2. Test resume từ epoch 20 ít nhất một epoch.
+3. Build frozen teachers theo mục 17, chưa nối auxiliary loss.
+4. Đo OCR CER và writer accuracy của teachers trên clean images.
+5. Chỉ khi clean metrics đủ tốt mới nối loss vào reconstruction.
+6. Test gradient một batch.
+7. Tạo output directory mới rồi chạy MFM+teacher.
 
 ## 14. Smoke test
 
@@ -981,7 +941,12 @@ Baseline B: cùng SharedBackbone mới, MFM pretrained
 Không so backbone cũ height 3 với backbone mới height 4 rồi quy toàn bộ cải thiện
 cho MFM.
 
-## 17. Checklist cuối
+## 17. OCR và writer teachers
+
+Phần mở rộng dùng frozen OCR/writer teachers đã được tách sang
+[MFM_TEACHER_GUIDE_VI.md](MFM_TEACHER_GUIDE_VI.md).
+
+## 18. Checklist cuối
 
 - [x] Collate trả rounded `img_lens`.
 - [x] Ảnh được đặt giữa valid background.
@@ -990,12 +955,12 @@ cho MFM.
 - [x] Reconstruction head dùng Conv1×1 + PixelShuffle(8).
 - [x] MFM pretrainer forward/backward pass.
 - [x] Frequency loss trả mean theo batch.
-- [x] `mfm_pretrain.py` và `mfm/pretrain_mfm.py` compile (entrypoint chưa hoàn thiện).
+- [x] `mfm_pretrain.py` và `mfm/pretrain_mfm.py` compile.
 - [x] AdamW có decay/no-decay groups.
-- [ ] Cosine scheduler + warmup chạy theo iteration.
-- [ ] Gradient clip dùng `3.0`.
-- [ ] Checkpoint save/load/resume pass.
-- [ ] Smoke test dữ liệu thật pass.
-- [ ] CUDA/Kaggle smoke test pass.
+- [x] Cosine scheduler + warmup chạy theo iteration.
+- [x] Gradient clip dùng `3.0`.
+- [x] Checkpoint save pass; load/resume chưa xác minh.
+- [x] Smoke test dữ liệu thật pass.
+- [x] CUDA/Kaggle smoke test pass.
 - [ ] Training dài hoàn thành.
 - [ ] Load backbone vào FW-GAN và chạy protocol so sánh công bằng.

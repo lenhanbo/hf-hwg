@@ -1,6 +1,34 @@
 import torch
 from torch import nn
-from mfm.utils import build_frequency_mask, apply_frequency_mask
+# from mfm.utils import build_frequency_mask, apply_frequency_mask
+
+import torch
+
+def build_frequency_mask(height, width, radius_ratio ,filter_type, device):
+    x_center = (width // 2)
+    y_center = (height // 2)
+    row = torch.arange(0, width, 1, device=device)
+    col = torch.arange(0, height, 1, device=device)
+    Y, X = torch.meshgrid(col, row, indexing="ij")
+    distance =  torch.sqrt((X - x_center)**2 + (Y- y_center)**2)
+    radius = radius_ratio * min(height, width)
+    mask = distance <= radius
+    if filter_type == "high_pass":
+        mask = ~mask
+
+    mask = mask.float()
+    mask = mask.unsqueeze(0).unsqueeze(0)
+    return mask
+
+def apply_frequency_mask(img, mask):
+    img = torch.fft.fft2(img)
+    img = torch.fft.fftshift(img, dim=(-2,-1))
+    img = img * mask 
+    img = torch.fft.ifftshift(img, dim=(-2, -1))
+    img = torch.fft.ifft2(img).real
+    img = torch.clamp(img, min=0, max =1)
+    return img
+
 
 class frequency_masker(nn.Module):
     def __init__(self, radius_ratio=16/224, p=0.5):
@@ -12,6 +40,7 @@ class frequency_masker(nn.Module):
         height = imgs.shape[-2]
         corrupted_img = imgs.clone()
         maskes = []
+        filter_types = []
         for i in range(imgs.shape[0]):
             width = int(img_lens[i].item())
             valid = imgs[i:i+1, :, :, :width]
@@ -34,7 +63,8 @@ class frequency_masker(nn.Module):
             maskes.append(
                 mask
             )
-        return corrupted_img, maskes
+            filter_types.append(filter_type)
+        return corrupted_img, maskes, filter_types
 
 class ReconstructionHead(nn.Module):
     def __init__(self, input_dim, upscale_factor=8):
@@ -60,7 +90,7 @@ class MFM_Pretrainer(nn.Module):
         self.recon_head = recon_head
         self.loss_func = loss_func
     def forward(self, x, img_lens):
-        masked_x, masked = self.masker(x, img_lens)
+        masked_x, masked, _ = self.masker(x, img_lens)
         feat, _ = self.backbone(masked_x)
         recon_x = self.recon_head(feat)
         loss = self.loss_func(x, recon_x, img_lens, masked)

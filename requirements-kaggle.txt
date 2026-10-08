@@ -4,3 +4,4 @@
 munch
 timm
 tensorboard
+matplotlib

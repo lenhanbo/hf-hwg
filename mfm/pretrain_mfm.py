@@ -11,8 +11,8 @@ from mfm.modules import (MFM_Pretrainer,ReconstructionHead)
 from mfm.loss import frequency_loss
 from mfm.optimizer import build_optimizer
 from mfm.scheduler import build_scheduler
-
-
+from mfm.utils import preview_frequency_mask
+import matplotlib.pyplot as plt
 
 def set_seed(seed):
     random.seed(seed)
@@ -32,6 +32,7 @@ def build_model(cfg, device):
                            loss_func=loss,
                            radius_ratio=cfg.training.radius_ratio,
                            p=cfg.training.low_pass_probability)
+    
     return model.to(device)
 
 
@@ -126,11 +127,14 @@ def main(cfg):
     output_dir = cfg.training.output_dir
     os.makedirs(output_dir, exist_ok=True)
 
+
     model = build_model(cfg, device)
     train_loader = build_train_dataloader(cfg)
 
     optimizer = build_optimizer(cfg, model)
     scheduler = build_scheduler(cfg, optimizer, len(train_loader))
+
+
 
     start_epoch = 1
     global_step = 0
@@ -165,6 +169,16 @@ def main(cfg):
         )
 
         if epoch % cfg.training.save_every == 0:
+            preview_batch = next(iter(train_loader))
+
+            preview_imgs, preview_lens, _, _, _ = preview_batch
+
+            preview_frequency_mask(preview_imgs, preview_lens,save_path=os.path.join(
+            output_dir,
+            "examples",
+            f"masked_epoch_{epoch:04d}.png",
+        ))
+
             epoch_path = os.path.join(
                 output_dir,
                 f"epoch_{epoch:04d}.pth",
