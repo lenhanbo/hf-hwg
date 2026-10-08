@@ -5,6 +5,12 @@ seed: 123456
 img_height: 32
 char_width: 16
 ckpt: 
+mfm_output: runs/mfm_iam
+mfm_checkpoint:
+  local_dir: runs/pretrained
+  repo_id: lenhanbo/mfm_checkpoint
+  filename: latest.pth
+  private: false
 
 training:
   dset_split: 'trnval'

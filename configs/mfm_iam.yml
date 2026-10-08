@@ -1,6 +1,10 @@
 device: cuda
 dataset: iam_word
 seed: 123456
+huggingface:
+  upload_after_training: true
+  repo_id: lenhanbo/mfm_checkpoint
+  filename: latest.pth
 
 training:
   dset_split: trnval
@@ -27,7 +31,7 @@ training:
   radius_ratio: 0.0714285714
   low_pass_probability: 0.5
 
-  output_dir: runs/mfm_iam
+  output_dir: runs/pretrained
   save_every: 10
   print_every: 20
   resume: ""
