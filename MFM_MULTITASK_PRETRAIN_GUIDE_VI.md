@@ -155,8 +155,25 @@ embedding phụ thuộc vào độ rộng lớn nhất của batch.
 
 ### Gate 1
 
-Kiểm tra hai feature tensor có phần valid giống nhau nhưng batch padding khác nhau
-phải cho pooled vector gần như giống nhau.
+**Gate này nằm ở đâu:** viết thành unit test trong
+`test/test_mfm_multitask_heads.py`, ngay sau khi hoàn thành hàm
+`masked_spatial_mean()` và trước khi viết OCR/writer head.
+
+**Gate này làm gì:** tạo hai feature tensor có phần valid giống hệt nhau nhưng
+phần batch padding khác nhau. Gọi `masked_spatial_mean()` với cùng `img_lens` và
+xác nhận hai pooled vector gần như giống nhau.
+
+**Gate này chặn lỗi gì:** nếu gate fail, head writer và projection head đang nhìn
+thấy batch padding. Khi đó embedding của cùng một ảnh có thể thay đổi chỉ vì ảnh
+được ghép chung với một sample rộng hơn trong batch.
+
+**Khi nào được đi tiếp:** chỉ viết writer/projection head sau khi test này pass.
+
+Chạy riêng gate:
+
+```bash
+pytest test/test_mfm_multitask_heads.py -k pooling -q
+```
 
 ## 6. Bước 2 — OCR head
 
@@ -194,14 +211,31 @@ ctc_input_lens = torch.div(
 
 ### Gate 2
 
-Với input `[B,256,4,W]`, output phải là `[W,B,n_class]`. Tất cả giá trị phải
-finite và:
+**Gate này nằm ở đâu:** thêm test OCR vào
+`test/test_mfm_multitask_heads.py`, ngay sau khi hoàn thành
+`MFMContentOCRHead`.
+
+**Gate này làm gì:** truyền feature giả `[B,256,4,W]` qua OCR head và kiểm tra
+output là `[W,B,n_class]`. Tất cả giá trị phải finite và:
 
 ```python
 torch.exp(log_probs).sum(-1)
 ```
 
 phải gần `1`.
+
+**Gate này chặn lỗi gì:** phát hiện sớm các lỗi transpose sai `[B,T,C]` thành
+`[T,B,C]`, quên `log_softmax`, hoặc chọn sai `n_class`. Nếu contract này sai,
+`CTCLoss` có thể lỗi hoặc âm thầm học sai trục thời gian.
+
+**Khi nào được đi tiếp:** OCR head phải pass shape/probability test trước khi nối
+vào `MultitaskMFMPretrainer`.
+
+Chạy riêng gate:
+
+```bash
+pytest test/test_mfm_multitask_heads.py -k ocr -q
+```
 
 ## 7. Bước 3 — writer-ID head
 
@@ -232,8 +266,25 @@ Với IAM hiện tại, `n_writer` là `339`, nhưng vẫn lấy từ config.
 
 ### Gate 3
 
-Output phải có shape `[B,n_writer]`. Thử thay đổi riêng batch padding và xác nhận
-writer logits không đổi đáng kể.
+**Gate này nằm ở đâu:** thêm test writer vào
+`test/test_mfm_multitask_heads.py`, ngay sau khi hoàn thành `MFMWriterHead`.
+
+**Gate này làm gì:** kiểm tra output có shape `[B,n_writer]`. Sau đó giữ nguyên
+phần feature valid, chỉ thay phần padding và xác nhận writer logits không đổi đáng
+kể.
+
+**Gate này chặn lỗi gì:** phát hiện writer head dùng global mean trên cả batch
+padding, dùng sai `img_lens`, hoặc dùng sai hệ số downscale. Nếu gate fail,
+writer-ID accuracy sẽ phụ thuộc cách các sample được ghép batch.
+
+**Khi nào được đi tiếp:** writer head phải pass cả shape test và padding-invariance
+test trước khi tính cross-entropy thật.
+
+Chạy riêng gate:
+
+```bash
+pytest test/test_mfm_multitask_heads.py -k writer -q
+```
 
 ## 8. Bước 4 — projection head cho Siamese contrastive
 
@@ -328,8 +379,26 @@ masked[i] <-> clean[i]
 
 ### Gate 4
 
-Tạo embedding giả sao cho positive pairs giống hệt nhau. Loss phải thấp hơn rõ
-rệt so với khi shuffle `masked_embeddings`.
+**Gate này nằm ở đâu:** tạo file `test/test_mfm_contrastive_loss.py` ngay sau khi
+hoàn thành `NTXentLoss`, trước khi nối contrastive loss vào training loop.
+
+**Gate này làm gì:** tạo embedding giả sao cho từng
+`clean_embeddings[i] == masked_embeddings[i]`. Loss của positive pairs đúng phải
+thấp hơn rõ rệt so với khi shuffle `masked_embeddings`.
+
+**Gate này chặn lỗi gì:** phát hiện target index bị lệch, positive pair bị ghép
+nhầm, diagonal self-similarity chưa bị loại, hoặc temperature được áp dụng sai.
+Loss vẫn có thể trả scalar finite khi mapping sai, nên chỉ smoke test `isfinite`
+là chưa đủ.
+
+**Khi nào được đi tiếp:** chỉ tích hợp NT-Xent vào total loss khi test chứng minh
+positive mapping đúng.
+
+Chạy riêng gate:
+
+```bash
+pytest test/test_mfm_contrastive_loss.py -q
+```
 
 ## 10. Bước 6 — module tổng hợp auxiliary loss
 
@@ -691,7 +760,26 @@ Không ghi đè baseline MFM.
 
 ## 15. Bước 11 — các gate trước full training
 
+Gate 1–4 ở các phần trước là **component gates**: mỗi gate kiểm tra một hàm/head
+ngay sau khi viết xong. Gate A–D dưới đây là **integration gates**: chỉ chạy sau
+khi `MultitaskMFMPretrainer`, `MFMMultitaskLoss`, optimizer và batch contract đã
+được nối với nhau.
+
+Không đặt các gate này bên trong vòng train production. Chúng nằm trong test hoặc
+script kiểm tra riêng và phải pass trước khi chạy full Kaggle job.
+
 ### Gate A: shape
+
+**Gate này nằm ở đâu:** `test/test_mfm_multitask_model.py`, trong một test forward
+toàn bộ model bằng batch giả hoặc một batch thật lấy từ dataloader.
+
+**Gate này làm gì:** gọi một lần:
+
+```python
+outputs = model(images, img_lens)
+```
+
+rồi kiểm tra toàn bộ contract giữa backbone và các head:
 
 - Reconstruction có cùng shape với ảnh input.
 - OCR output là `[T,B,n_class]`.
@@ -699,7 +787,22 @@ Không ghi đè baseline MFM.
 - Embedding output là `[B,projection_dim]`.
 - Norm mỗi embedding gần `1`.
 
+**Gate này chặn lỗi gì:** sai channel `input_dim`, sai upscale reconstruction,
+sai feature width hoặc thiếu key trong dictionary output.
+
+Chạy riêng gate:
+
+```bash
+pytest test/test_mfm_multitask_model.py -k shape -q
+```
+
 ### Gate B: gradient
+
+**Gate này nằm ở đâu:** cùng file `test/test_mfm_multitask_model.py`, nhưng là test
+backward riêng, chạy sau khi Gate A đã pass.
+
+**Gate này làm gì:** tính total loss trên một batch nhỏ, gọi `loss.backward()` rồi
+kiểm tra:
 
 Sau một backward:
 
@@ -709,7 +812,28 @@ Sau một backward:
 - Writer head có gradient.
 - Projection head có gradient.
 
+**Gate này chặn lỗi gì:** tensor bị `.detach()` nhầm, auxiliary loss bị đặt trong
+`torch.no_grad()`, một head không được cộng vào total loss, hoặc optimizer/model
+không chứa parameter của head.
+
+Lưu ý Gate B kiểm tra gradient tồn tại; test optimizer parameter groups riêng để
+chắc chắn các parameter đó cũng thực sự được `optimizer.step()` cập nhật.
+
+Chạy riêng gate:
+
+```bash
+pytest test/test_mfm_multitask_model.py -k gradient -q
+```
+
 ### Gate C: overfit batch nhỏ
+
+**Gate này nằm ở đâu:** tạo script debug riêng, ví dụ
+`tools/overfit_mfm_multitask_batch.py`, hoặc một cell Kaggle riêng. Không đặt đoạn
+overfit này trong `mfm/pretrain_mfm.py` production.
+
+**Gate này làm gì:** cố định đúng một batch 16–32 sample rồi train lặp lại batch đó
+100–300 step. Mục tiêu không phải generalization mà là xác nhận model, labels,
+loss và optimizer có khả năng học.
 
 Train lặp lại 16–32 sample trong khoảng 100–300 step:
 
@@ -718,9 +842,27 @@ Train lặp lại 16–32 sample trong khoảng 100–300 step:
 - Contrastive loss giảm.
 - Frequency loss không phát nổ thành NaN.
 
-Nếu không overfit được batch nhỏ, chưa chạy full dataset.
+**Gate này chặn lỗi gì:** label/writer ID sai thứ tự, CTC lengths sai, learning rate
+không phù hợp, optimizer không update head, hoặc các loss xung đột nghiêm trọng.
+
+**Khi nào pass:** không yêu cầu mọi loss về `0`, nhưng xu hướng phải giảm rõ và
+writer accuracy trên batch cố định phải tăng. Nếu không overfit được batch nhỏ,
+chưa chạy full dataset.
 
 ### Gate D: teacher-free xác nhận
+
+**Gate này nằm ở đâu:** đây là source audit chạy ở root repository sau khi hoàn
+thành tích hợp, không phải test tensor. Kiểm tra các file:
+
+```text
+mfm/multitask_heads.py
+mfm/multitask_loss.py
+mfm/modules.py
+mfm/pretrain_mfm.py
+```
+
+**Gate này làm gì:** xác nhận pipeline multi-task không vô tình import hoặc load
+model/checkpoint FW-GAN.
 
 Kiểm tra source không import:
 
@@ -731,6 +873,18 @@ FW-GAN.pth
 ```
 
 trong pipeline multi-task MFM.
+
+Có thể audit nhanh bằng:
+
+```bash
+rg -n "Recognizer|WriterIdentifier|FW-GAN\.pth" mfm
+```
+
+**Gate này chặn lỗi gì:** tránh biến thí nghiệm thành teacher distillation từ
+FW-GAN, trái với mục tiêu các auxiliary head được train từ đầu và độc lập.
+
+Gate pass khi kết quả tìm kiếm không có import/load trong pipeline multi-task.
+Các dòng chỉ xuất hiện trong comment hoặc tài liệu phải được xem thủ công.
 
 ## 16. Evaluation
 
