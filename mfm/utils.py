@@ -23,7 +23,7 @@ def preview_frequency_mask(
     corrupted_imgs = ((corrupted_imgs.detach().cpu() + 1.0)/2.0).clamp(0, 1)
     fig, axes = plt.subplots(
         imgs.shape[0],
-        1,
+        2,
         figsize=(12, 3 * imgs.shape[0]),
         squeeze=False
     )
@@ -36,16 +36,24 @@ def preview_frequency_mask(
             f"shape={tuple(corrupted_imgs[i, :, :, :width].shape)} "
             f"width={width}"
         )
-
         axes[i, 0].imshow(
+                    imgs[i, 0, :, :width],
+                    cmap='gray',
+                    vmin =0,
+                    vmax=1,
+                    aspect='auto'
+                )
+        axes[i, 0].set_title('Original')
+        axes[i, 0].axis('off')
+        axes[i, 1].imshow(
             corrupted_imgs[i, 0, :, :width],
             cmap='gray',
             vmin =0,
             vmax=1,
             aspect='auto'
         )
-        axes[i, 0].set_title(filter_types[i])
-        axes[i, 0].axis('off')
+        axes[i, 1].set_title(filter_types[i])
+        axes[i, 1].axis('off')
         
     fig.tight_layout()
     if save_path is not None:
