@@ -8,7 +8,7 @@ ckpt:
 mfm_output: runs/mfm_iam
 mfm_checkpoint:
   local_dir: runs/pretrained
-  repo_id: lenhanbo/mfm_checkpoint/runs/pretrained
+  repo_id: lenhanbo/mfm_checkpoint
   filename: latest.pth
   private: false
 
