@@ -19,7 +19,6 @@ from networks.utils import _len2mask, init_weights
 class SharedBackbone(nn.Module):
     def __init__(self, resolution=16, max_dim=256, in_channel=1, norm='none', SN_param=False, dropout=0.0):
         super(SharedBackbone, self).__init__()
-        
         # Define layer names for feature extraction
         self.layer_name_mapping = {
             '9': "feat2",

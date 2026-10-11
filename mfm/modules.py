@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 # from mfm.utils import build_frequency_mask, apply_frequency_mask
-
+from mfm.loss import frequency_loss
 import torch
 
 def build_frequency_mask(height, width, radius_ratio ,filter_type, device):
@@ -28,6 +28,30 @@ def apply_frequency_mask(img, mask):
     img = torch.fft.ifft2(img).real
     img = torch.clamp(img, min=0, max =1)
     return img
+
+
+def masked_spatial_mean(feat, img_lens,downscale=8):
+    batch, channel, h, w = feat.shape
+    feature_lens = torch.div(
+        img_lens.to(feat.device).long(),
+        downscale,
+        rounding_mode='floor'   
+    )
+    if torch.any(feature_lens <= 0):
+        raise ValueError("Feature lens must be positive!!")
+
+    valid_w = torch.arange(
+        w, 
+        device=feat.device
+    ).unsqueeze(0)
+
+    valid_mask = (valid_w < feature_lens.unsqueeze(1))[:, None, None, :].to(feat.dtype)
+
+    numerator = (feat * valid_mask).sum(dim=(2, 3))
+    denominator = feature_lens.to(feat.dtype) * h
+    
+    return numerator/denominator.unsqueeze(1).clamp_min(1.0)
+
 
 
 class frequency_masker(nn.Module):
@@ -82,17 +106,113 @@ class ReconstructionHead(nn.Module):
         return x
 
 
-class MFM_Pretrainer(nn.Module):
-    def __init__(self, backbone, recon_head, loss_func, radius_ratio=16/224, p=0.5):
+
+
+class OCR_HEAD(nn.Module):
+    def __init__(self, input_dim, n_class):
         super().__init__()
-        self.masker = frequency_masker(radius_ratio=radius_ratio, p=p)
-        self.backbone = backbone
-        self.recon_head = recon_head
-        self.loss_func = loss_func
+        self.norm = nn.LayerNorm(input_dim)
+        self.fc = nn.Linear(input_dim, n_class)
+    def forward(self, x):
+        x = x.mean(dim = 2).transpose(1, 2) # chuyển feature -> chiều cuối
+        x = self.norm(x)
+        x = self.fc(x)
+        return x.log_softmax(dim = -1). transpose(0 , 1) # Chiều feature lại [B, C, W]
+
+class WriterIdentity(nn.Module):
+    def __init__(self, input_dim, n_writer, downscale=8):
+        super().__init__()
+        self.input_dim = input_dim
+        self.n_writer = n_writer
+        self.downscale = downscale
+        self.classifier = nn.Sequential(
+            nn.Linear(input_dim, input_dim),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Dropout(0.2),
+            nn.Linear(input_dim, n_writer)
+        )
     def forward(self, x, img_lens):
+        x = masked_spatial_mean(feat=x, img_lens=img_lens, downscale=self.downscale)
+        return self.classifier(x)
+
+class MFM_Pretrainer(nn.Module):
+    def __init__(self, backbone, use_ocr=False, use_writer=False,
+                 lambda_ocr=0, lambda_writer=0, radius_ratio=16/224, p=0.5,
+                 n_writers=None, upscale_factor = 8, n_class = None
+                 ):
+        super().__init__()
+        self.upscale_factor = upscale_factor
+        self.backbone = backbone
+        self.masker = frequency_masker(radius_ratio=radius_ratio, p=p)
+        self.recon_head = ReconstructionHead(backbone.output_dim, 
+                                             upscale_factor=self.upscale_factor)
+        self.freq_loss = frequency_loss()
+        self.use_ocr = use_ocr
+        self.use_writer = use_writer
+        if use_ocr == True:
+            # sel
+            self.ocr_head = OCR_HEAD(backbone.output_dim, n_class=n_class)
+            self.ctc_loss = nn.CTCLoss(blank=0, reduction='mean',zero_infinity=True)
+            self.lambda_ocr = lambda_ocr
+        if use_writer == True:
+            self.writer_head = WriterIdentity(backbone.output_dim, n_writer=n_writers)
+            self.lambda_writer = lambda_writer
+            self.writer_loss = nn.CrossEntropyLoss()
+        # self.ctc_loss
+
+    def forward(self, x, img_lens, labels, label_lens, writer_ids):
+        device = x.device
         masked_x, masked, _ = self.masker(x, img_lens)
         feat, _ = self.backbone(masked_x)
+        clean_feat, _ = self.backbone(x)
+        labels = labels.to(device)
+        label_lens = label_lens.to(device)
+        writer_ids = writer_ids.to(device)
         recon_x = self.recon_head(feat)
-        loss = self.loss_func(x, recon_x, img_lens, masked)
-        return loss
 
+        loss = self.freq_loss(x, recon_x, img_lens, masked)
+    
+        if self.use_ocr:
+            masked_ocr_probs = self.ocr_head(feat)
+            clean_ocr_probs = self.ocr_head(clean_feat) # [W, B, n_class]
+            ctc_input_lens = torch.div(
+                img_lens.to(x.device).long(),
+                self.upscale_factor,
+                rounding_mode="floor"
+            )
+            if torch.any(ctc_input_lens > clean_ocr_probs.size(0)):
+                raise ValueError(
+                    "CTC input length exceeds OCR time dimension"
+                )
+
+            if torch.any(label_lens > ctc_input_lens):
+                raise ValueError(
+                    "CTC target length exceeds input length"
+                )
+            clean_ocr_loss = self.ctc_loss(
+                clean_ocr_probs,
+                labels,
+                ctc_input_lens,
+                label_lens
+            )
+            masked_ocr_loss = self.ctc_loss(
+                            masked_ocr_probs,
+                            labels,
+                            ctc_input_lens,
+                            label_lens
+                        )
+            ocr_loss = 0.5 * (clean_ocr_loss + masked_ocr_loss)
+            loss = loss + self.lambda_ocr * ocr_loss
+
+        if self.use_writer:
+            clean_logits = self.writer_head(clean_feat, img_lens)
+            masked_logits = self.writer_head(feat, img_lens)
+
+            clean_loss =  self.writer_loss(clean_logits, writer_ids)
+            masked_loss = self.writer_loss(masked_logits, writer_ids)
+
+            writer_loss = 0.5 * (clean_loss + masked_loss)
+            loss = loss + self.lambda_writer *  writer_loss
+        # loss = (freq_loss + writer_loss + ocr_loss)
+        return loss
+    

@@ -24,14 +24,22 @@ def set_seed(seed):
 
 def build_model(cfg, device):
     backbone = SharedBackbone(**cfg.SharedBackbone)
-    loss = frequency_loss()
-    recon_head = ReconstructionHead(input_dim=backbone.output_dim,
-                                    upscale_factor=8)
-    model = MFM_Pretrainer(backbone=backbone,
-                           recon_head=recon_head,
-                           loss_func=loss,
-                           radius_ratio=cfg.training.radius_ratio,
-                           p=cfg.training.low_pass_probability)
+    # freq_loss = frequency_loss()
+    # recon_head = ReconstructionHead(input_dim=backbone.output_dim,
+                                    # upscale_factor=8)
+
+    model = MFM_Pretrainer(
+        backbone=backbone,
+        use_ocr=True,
+        use_writer=True,
+        n_class=cfg.multitask.n_class,
+        n_writers=cfg.multitask.n_writer,
+        lambda_ocr=cfg.multitask.lambda_ocr,
+        lambda_writer=cfg.multitask.lambda_writer,
+        radius_ratio=cfg.training.radius_ratio,
+        p=cfg.training.low_pass_probability,
+        upscale_factor=8,
+    )
     
     return model.to(device)
 
@@ -59,12 +67,12 @@ def train_one_epoch(model, loader, optimizer, scheduler, grad_clip, epoch, globa
     total_loss = 0.0
     total_samples = 0.0
     for i, batch in enumerate(loader):
-        images, img_lens, _, _, _ = batch
+        images, img_lens, label, label_lens, writer_ids = batch
 
         images = images.to(device,
                            non_blocking=True)
 
-        loss = model(images, img_lens)
+        loss = model(images, img_lens, label, label_lens, writer_ids)
 
         optimizer.zero_grad(set_to_none=True)
 
@@ -96,8 +104,7 @@ def save_checkpoint(path, model, optimizer, scheduler, epoch, global_step, cfg):
     checkpoint = {
         "epoch" : epoch,
         'global_step' : global_step,
-        'backbone': model.backbone.state_dict(),
-        'reconstruction_head': model.recon_head.state_dict(),
+        'model': model.state_dict(),
         'optimizer': optimizer.state_dict(),
         'config': dict(cfg),
         'scheduler': scheduler.state_dict(),
@@ -106,8 +113,7 @@ def save_checkpoint(path, model, optimizer, scheduler, epoch, global_step, cfg):
 
 def load_checkpoint(path, model, optimizer,scheduler, device):
     checkpoint = torch.load(path, map_location=device, weights_only=False)
-    model.backbone.load_state_dict(checkpoint['backbone'])
-    model.recon_head.load_state_dict(checkpoint['reconstruction_head'])
+    model.load_state_dict(checkpoint['model'])
     optimizer.load_state_dict(checkpoint['optimizer'])
     start_epoch = checkpoint["epoch"] + 1
     global_step = checkpoint["global_step"]

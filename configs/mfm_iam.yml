@@ -31,10 +31,16 @@ training:
   radius_ratio: 0.0714285714
   low_pass_probability: 0.5
 
-  output_dir: runs/pretrained
+  output_dir: runs/mfm_multitask_iam
   save_every: 10
   print_every: 20
   resume: ""
+
+multitask:
+  n_class: 81
+  n_writer: 339
+  lambda_ocr: 0.01
+  lambda_writer: 0.01
 
 SharedBackbone:
   resolution: 16

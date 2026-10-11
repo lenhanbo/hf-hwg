@@ -11,10 +11,27 @@ def validate_mfm_checkpoint(path):
         weights_only=False,
     )
 
-    if "backbone" not in checkpoint:
+    if "model" not in checkpoint:
         raise KeyError(
-            f"Checkpoint {path} không có key 'backbone'. "
+            f"Checkpoint {path} không có key 'model'. "
             f"Available keys: {list(checkpoint.keys())}"
+        )
+
+    model_state = checkpoint["model"]
+
+    if not isinstance(model_state, dict):
+        raise TypeError(
+            "checkpoint['model'] phải là một state_dict"
+        )
+
+    has_backbone = any(
+        key.startswith("backbone.")
+        for key in model_state
+    )
+
+    if not has_backbone:
+        raise KeyError(
+            "checkpoint['model'] không chứa backbone parameters"
         )
 
     return checkpoint

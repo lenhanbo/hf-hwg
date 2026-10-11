@@ -10,11 +10,35 @@ from mfm.download_checkpoints import ensure_mfm_checkpoint
 
 def load_sharedbackbone_checkpoint(path, model, device):
     if not os.path.isfile(path):
-        raise RuntimeError('Khong co checkpoint')
-    backbone = torch.load(path, map_location=device, weights_only=False)['backbone']
-    # if not os.path.exists(path):
-    #     raise RuntimeError('Chua co checkpoint shared_backbone')
-    model.models.S.load_state_dict(backbone)
+        raise FileNotFoundError(
+            f"Không tìm thấy checkpoint: {path}"
+        )
+
+    checkpoint = torch.load(
+        path,
+        map_location=device,
+        weights_only=False,
+    )
+
+    model_state = checkpoint["model"]
+    prefix = "backbone."
+
+    backbone_state = {
+        key.removeprefix(prefix): value
+        for key, value in model_state.items()
+        if key.startswith(prefix)
+    }
+
+    if not backbone_state:
+        raise KeyError(
+            "Không tìm thấy backbone trong model state_dict"
+        )
+
+    model.models.S.load_state_dict(
+        backbone_state,
+        strict=True,
+    )
+
     return model
 
 
