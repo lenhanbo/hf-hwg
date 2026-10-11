@@ -64,7 +64,8 @@ def build_train_dataloader(cfg):
 
 def train_one_epoch(model, loader, optimizer, scheduler, grad_clip, epoch, global_step, device):
     model.train()
-    total_loss = 0.0
+    # total_loss = 0.0
+    loss_sums = {}
     total_samples = 0.0
     for i, batch in enumerate(loader):
         images, img_lens, label, label_lens, writer_ids = batch
@@ -72,7 +73,7 @@ def train_one_epoch(model, loader, optimizer, scheduler, grad_clip, epoch, globa
         images = images.to(device,
                            non_blocking=True)
 
-        loss = model(images, img_lens, label, label_lens, writer_ids)
+        loss, loss_dict = model(images, img_lens, label, label_lens, writer_ids)
 
         optimizer.zero_grad(set_to_none=True)
 
@@ -86,18 +87,33 @@ def train_one_epoch(model, loader, optimizer, scheduler, grad_clip, epoch, globa
         optimizer.step()
         scheduler.step_update(global_step)
         batch_size = images.shape[0]
-        total_loss += loss.detach().item() * batch_size
+        for name, value in loss_dict.items():
+            if name not in loss_sums:
+                loss_sums[name] = 0.0
+
+            loss_sums[name] += (
+                value.detach().item() * batch_size
+            )
         total_samples += batch_size
         global_step += 1
         if i % 20 == 0:
+            loss_message = " ".join(
+                f"{name}={value.detach().item():.6f}"
+                for name, value in loss_dict.items()
+            )
+
             print(
                 f"epoch={epoch} "
                 f"batch={i}/{len(loader)} "
-                f"loss={loss.detach().item():.6f}"
+                f"{loss_message}"
             )
 
-    mean_loss = total_loss/max(1, total_samples)
-    return mean_loss, global_step
+    mean_losses = {
+        name: value / max(1, total_samples)
+        for name, value in loss_sums.items()
+    }
+
+    return mean_losses, global_step
 
 
 def save_checkpoint(path, model, optimizer, scheduler, epoch, global_step, cfg):
@@ -153,10 +169,15 @@ def main(cfg):
         start_epoch, global_step = load_checkpoint(resume_path, model, optimizer, scheduler, device)
         print('Da load thanh cong checkpoint!!')
     for epoch in range(start_epoch, cfg.training.epochs + 1):
-        mean_loss, global_step = train_one_epoch(model, train_loader, optimizer, scheduler, cfg.training.grad_clip, epoch, global_step, device)
+        mean_losses, global_step = train_one_epoch(model, train_loader, optimizer, scheduler, cfg.training.grad_clip, epoch, global_step, device)
+        mean_message = " ".join(
+            f"mean_{name}={value:.6f}"
+            for name, value in mean_losses.items()
+        )
+
         print(
             f"epoch={epoch} "
-            f"mean_loss={mean_loss:.6f}"
+            f"{mean_message}"
         )
 
         latest_path = os.path.join(
@@ -173,7 +194,7 @@ def main(cfg):
             global_step,
             cfg,
         )
-
+        # print example
         if epoch % cfg.training.save_every == 0:
             preview_batch = next(iter(train_loader))
 

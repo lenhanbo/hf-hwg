@@ -170,8 +170,9 @@ class MFM_Pretrainer(nn.Module):
         writer_ids = writer_ids.to(device)
         recon_x = self.recon_head(feat)
 
+        loss_dict = {}
         loss = self.freq_loss(x, recon_x, img_lens, masked)
-    
+        loss_dict['freq_loss'] = loss
         if self.use_ocr:
             masked_ocr_probs = self.ocr_head(feat)
             clean_ocr_probs = self.ocr_head(clean_feat) # [W, B, n_class]
@@ -203,6 +204,7 @@ class MFM_Pretrainer(nn.Module):
                         )
             ocr_loss = 0.5 * (clean_ocr_loss + masked_ocr_loss)
             loss = loss + self.lambda_ocr * ocr_loss
+            loss_dict['ocr_loss'] = ocr_loss 
 
         if self.use_writer:
             clean_logits = self.writer_head(clean_feat, img_lens)
@@ -213,6 +215,8 @@ class MFM_Pretrainer(nn.Module):
 
             writer_loss = 0.5 * (clean_loss + masked_loss)
             loss = loss + self.lambda_writer *  writer_loss
+            loss_dict['writer_loss'] = writer_loss
         # loss = (freq_loss + writer_loss + ocr_loss)
-        return loss
+        loss_dict['total_loss'] = loss
+        return loss, loss_dict
     
