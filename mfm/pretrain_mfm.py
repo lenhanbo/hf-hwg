@@ -22,6 +22,7 @@ def set_seed(seed):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
+
 def build_model(cfg, device):
     backbone = SharedBackbone(**cfg.SharedBackbone)
     # freq_loss = frequency_loss()
@@ -60,6 +61,9 @@ def build_train_dataloader(cfg):
         pin_memory=True
     )
     return dataloader
+
+
+
 
 
 def train_one_epoch(model, loader, optimizer, scheduler, grad_clip, epoch, global_step, device):
@@ -114,6 +118,9 @@ def train_one_epoch(model, loader, optimizer, scheduler, grad_clip, epoch, globa
     }
 
     return mean_losses, global_step
+
+
+
 
 
 def save_checkpoint(path, model, optimizer, scheduler, epoch, global_step, cfg):

@@ -219,4 +219,21 @@ class MFM_Pretrainer(nn.Module):
         # loss = (freq_loss + writer_loss + ocr_loss)
         loss_dict['total_loss'] = loss
         return loss, loss_dict
-    
+    def reconstruct(self, imgs, img_lens):
+        corrupted_imgs, frequency_masks, filter_types = self.masker(imgs, img_lens)
+
+        masked_feats, _ = self.backbone(
+            corrupted_imgs
+        )
+        recon_imgs = self.recon_head(masked_feats)
+
+        reconstruction_tanh = torch.tanh(recon_imgs)
+
+        return {
+            'clean': imgs,
+            'corrupted': corrupted_imgs,
+            'reconstruction': reconstruction_tanh,
+            'recon_imgs': recon_imgs,
+            'frequency_masks': frequency_masks,
+            'filter_types' : filter_types
+        }
