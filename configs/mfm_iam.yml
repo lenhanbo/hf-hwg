@@ -48,3 +48,28 @@ SharedBackbone:
   in_channel: 1
   dropout: 0.0
   norm: bn
+
+
+evaluation:
+  enabled: true
+  split: test
+  every: 5
+
+  batch_size: 16
+  num_workers: 4
+  seed: 123456
+
+  compute_fid: true
+  compute_kid: true
+  compute_hwd: true
+
+  cache_dir: runs/mfm_multitask_iam/evaluation_cache
+
+  fid_kid:
+    dims: 2048
+    mmd_degree: 3
+    mmd_gamma: null
+    mmd_coef0: 1.0
+    mmd_subsets: 50
+    mmd_subset_size: 1000
+    mmd_var: true

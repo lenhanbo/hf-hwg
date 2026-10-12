@@ -13,6 +13,7 @@ from mfm.optimizer import build_optimizer
 from mfm.scheduler import build_scheduler
 from mfm.utils import preview_frequency_mask
 import matplotlib.pyplot as plt
+from mfm.eval import ReconstructionEvaluator
 
 def set_seed(seed):
     random.seed(seed)
@@ -62,7 +63,21 @@ def build_train_dataloader(cfg):
     )
     return dataloader
 
-
+def build_eval_dataloader(cfg):
+    dataset = get_dataset(
+        cfg.dataset,
+        cfg.evaluation.split
+    )
+    dataloader = DataLoader(
+        dataset=dataset,
+        batch_size=cfg.evaluation.batch_size,
+        shuffle=False,
+        num_workers=cfg.evaluation.num_workers,
+        collate_fn=Hdf5Dataset.collect_fn,
+        drop_last=False,
+        pin_memory=True
+    )
+    return dataloader
 
 
 
@@ -160,6 +175,15 @@ def main(cfg):
     model = build_model(cfg, device)
     train_loader = build_train_dataloader(cfg)
 
+    evaluator = None
+    if cfg.evaluation.enabled:
+        validation_loader = build_eval_dataloader(cfg)
+        evaluator = ReconstructionEvaluator(
+            cfg,
+            validation_loader=validation_loader,
+            device=device,
+        )
+
     optimizer = build_optimizer(cfg, model)
     scheduler = build_scheduler(cfg, optimizer, len(train_loader))
 
@@ -169,7 +193,6 @@ def main(cfg):
     global_step = 0
 
     resume_path = cfg.training.resume
-
     if resume_path:
         if not os.path.exists(resume_path):
             raise RuntimeError('Khong co checkpoint !!')
@@ -211,7 +234,8 @@ def main(cfg):
             output_dir,
             "examples",
             f"masked_epoch_{epoch:04d}.png",
-        ))
+
+            ))
 
             epoch_path = os.path.join(
                 output_dir,
@@ -227,3 +251,18 @@ def main(cfg):
                 global_step,
                 cfg,
             )
+        if evaluator is not None and epoch % cfg.evaluation.every == 0:
+
+            metrics = evaluator.evaluate(model=model, epoch=epoch)
+            metric_message = " ".join(
+                f"{name}={value:.6f}"
+                for name, value in metrics.items()
+            )
+
+            print(
+                f"[VAL] epoch={epoch} "
+                f"{metric_message}"
+            )
+
+            # evaluator vừa gọi model.eval()
+            model.train()

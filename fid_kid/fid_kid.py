@@ -32,7 +32,7 @@ from fid_kid.inception import InceptionV3
 # from inception import InceptionV3
 
 
-def get_activations(data_source, n_batches, max_img_width, model, dims, device):
+def get_activations(data_source, n_batches, model, dims, device):
     """Calculates the activations of the pool_3 layer for all images.
     Params:
     -- data_source  : List of image files paths
@@ -345,7 +345,7 @@ def _mmd2_and_variance(K_XX, K_XY, K_YY, unit_diagonal=False,
     return mmd2, var_est
 
 
-def calculate_kid_fid(cfg, data_loader, generator, max_img_width, device):
+def calculate_kid_fid(cfg, data_loader, generator, device):
     '''
     ATTENTION: the backgroud value of input images must be -1, and the foreground values should be less than 1.
     '''
@@ -355,8 +355,8 @@ def calculate_kid_fid(cfg, data_loader, generator, max_img_width, device):
     inceptionV3_model.to(device)
 
     n_batches = len(data_loader)
-    act1, m1, s1 = calculate_activation_statistics(data_loader, n_batches, max_img_width, inceptionV3_model, cfg.dims, device)
-    act2, m2, s2 = calculate_activation_statistics(generator, n_batches, max_img_width, inceptionV3_model, cfg.dims, device)
+    act1, m1, s1 = calculate_activation_statistics(data_loader, n_batches, inceptionV3_model, cfg.dims, device)
+    act2, m2, s2 = calculate_activation_statistics(generator, n_batches, inceptionV3_model, cfg.dims, device)
     fid_value = calculate_frechet_distance(m1, s1, m2, s2)
 
     ret = polynomial_mmd_averages(
