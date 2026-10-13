@@ -20,3 +20,5 @@ msgpack
 editdistance
 requests
 botorch
+gudhi
+six
