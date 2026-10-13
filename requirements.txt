@@ -1,5 +1,8 @@
 tensorboard
 munch
+torch
+torchvision
+torchmetrics
 opencv-python
 h5py
 scikit-learn
@@ -10,3 +13,10 @@ timm
 Pillow
 scipy
 tqdm
+transformers
+tiktoken
+protobuf
+msgpack
+editdistance
+requests
+botorch
