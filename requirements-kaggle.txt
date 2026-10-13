@@ -5,4 +5,14 @@ munch
 timm
 tensorboard
 matplotlib
+torchmetrics
+transformers
+tiktoken
+protobuf
+msgpack
+editdistance
+requests
+botorch
+gudhi
+six
 
