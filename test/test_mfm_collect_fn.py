@@ -37,7 +37,7 @@ def test_collect_fn_centers_images_and_returns_rounded_lengths():
     assert torch.all(images[0, :, :, 61:64] == 1)
 
     # [64:80] is batch-only padding, not part of the valid image.
-    assert torch.all(images[0, :, :, 64:] == -1)
+    assert torch.all(images[0, :, :, 64:] == 1)
 
     # raw width 78 -> valid width 80: 1 white pixel on each side.
     assert torch.all(images[1, :, :, :1] == 1)

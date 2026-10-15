@@ -126,7 +126,7 @@ class Hdf5Dataset(Dataset):
         max_img_len = max(img_lens)
 
 
-        pad_imgs = -np.ones((bz, 1, imgHeight, max_img_len), dtype=np.float32)
+        pad_imgs = np.ones((bz, 1, imgHeight, max_img_len), dtype=np.float32)
         
         for i, (img, img_len) in enumerate(zip(imgs, img_lens)):
             pad_imgs[i, 0, :, :img_len] = img

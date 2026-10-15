@@ -32,8 +32,8 @@ def build_model(cfg, device):
 
     model = MFM_Pretrainer(
         backbone=backbone,
-        use_ocr=True,
-        use_writer=True,
+        use_ocr=False,
+        use_writer=False,
         n_class=cfg.multitask.n_class,
         n_writers=cfg.multitask.n_writer,
         lambda_ocr=cfg.multitask.lambda_ocr,

@@ -160,20 +160,27 @@ class MFM_Pretrainer(nn.Module):
             self.writer_loss = nn.CrossEntropyLoss()
         # self.ctc_loss
 
-    def forward(self, x, img_lens, labels, label_lens, writer_ids):
+    def forward(self, x, img_lens, labels=None, label_lens=None, writer_ids=None):
         device = x.device
         masked_x, masked, _ = self.masker(x, img_lens)
+        # gọi batchnorm 2 lần :3
         feat, _ = self.backbone(masked_x)
-        clean_feat, _ = self.backbone(x)
-        labels = labels.to(device)
-        label_lens = label_lens.to(device)
-        writer_ids = writer_ids.to(device)
+        clean_feat = None
+        if self.use_ocr or self.use_writer:
+            clean_feat, _ = self.backbone(x)
+
         recon_x = self.recon_head(feat)
 
         loss_dict = {}
         loss = self.freq_loss(x, recon_x, img_lens, masked)
         loss_dict['freq_loss'] = loss
         if self.use_ocr:
+            if labels is None or label_lens is None:
+                raise ValueError(
+                    "labels and label_lens are required when use_ocr=True"
+                )
+            labels = labels.to(device)
+            label_lens = label_lens.to(device)
             masked_ocr_probs = self.ocr_head(feat)
             clean_ocr_probs = self.ocr_head(clean_feat) # [W, B, n_class]
             ctc_input_lens = torch.div(
@@ -207,6 +214,8 @@ class MFM_Pretrainer(nn.Module):
             loss_dict['ocr_loss'] = ocr_loss 
 
         if self.use_writer:
+                
+            writer_ids = writer_ids.to(device)
             clean_logits = self.writer_head(clean_feat, img_lens)
             masked_logits = self.writer_head(feat, img_lens)
 
@@ -219,6 +228,8 @@ class MFM_Pretrainer(nn.Module):
         # loss = (freq_loss + writer_loss + ocr_loss)
         loss_dict['total_loss'] = loss
         return loss, loss_dict
+
+    @torch.no_grad()
     def reconstruct(self, imgs, img_lens):
         corrupted_imgs, frequency_masks, filter_types = self.masker(imgs, img_lens)
 
@@ -227,12 +238,13 @@ class MFM_Pretrainer(nn.Module):
         )
         recon_imgs = self.recon_head(masked_feats)
 
-        reconstruction_tanh = torch.tanh(recon_imgs)
+        reconstruction = recon_imgs.clamp(-1, 1)
+
 
         return {
             'clean': imgs,
             'corrupted': corrupted_imgs,
-            'reconstruction': reconstruction_tanh,
+            'reconstruction': reconstruction,
             'recon_imgs': recon_imgs,
             'frequency_masks': frequency_masks,
             'filter_types' : filter_types

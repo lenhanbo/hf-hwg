@@ -2,8 +2,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from mfm.loss import frequency_loss
-from mfm.modules import MFM_Pretrainer, ReconstructionHead
+from mfm.modules import MFM_Pretrainer
 
 
 class TupleBackbone(nn.Module):
@@ -25,24 +24,30 @@ def test_mfm_pretrainer_forward_and_backward():
     torch.manual_seed(11)
 
     backbone = TupleBackbone()
-    head = ReconstructionHead(input_dim=backbone.output_dim)
-    loss_fn = frequency_loss()
-    model = MFM_Pretrainer(backbone, head, loss_fn, p=1.0)
+    model = MFM_Pretrainer(
+        backbone=backbone,
+        use_ocr=False,
+        use_writer=False,
+        p=1.0,
+    )
 
     images = -torch.ones(2, 1, 32, 80)
     images[0, :, :, :64] = torch.rand(1, 32, 64) * 2 - 1
     images[1, :, :, :80] = torch.rand(1, 32, 80) * 2 - 1
     img_lens = torch.tensor([64, 80], dtype=torch.int32)
 
-    loss = model(images, img_lens)
+    loss, loss_dict = model(images, img_lens)
 
     assert loss.ndim == 0
     assert torch.isfinite(loss)
+    assert set(loss_dict) == {"freq_loss", "total_loss"}
+    assert torch.isfinite(loss_dict["freq_loss"])
+    assert torch.isfinite(loss_dict["total_loss"])
 
     loss.backward()
 
     backbone_grad = backbone.projection.weight.grad
-    head_grad = head.projection.weight.grad
+    head_grad = model.recon_head.projection.weight.grad
 
     assert backbone_grad is not None
     assert head_grad is not None

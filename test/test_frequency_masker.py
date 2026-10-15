@@ -18,12 +18,13 @@ def test_frequency_masker_uses_img_lens_and_preserves_batch_padding():
     images, img_lens = _make_batch()
     masker = frequency_masker(p=1.0)
 
-    corrupted, masks = masker(images, img_lens)
+    corrupted, masks, filter_types = masker(images, img_lens)
 
     assert corrupted.shape == images.shape
     assert corrupted.dtype == images.dtype
     assert torch.isfinite(corrupted).all()
     assert len(masks) == 2
+    assert filter_types == ["low_pass", "low_pass"]
     assert masks[0].shape == (1, 1, 32, 64)
     assert masks[1].shape == (1, 1, 32, 80)
 
@@ -38,8 +39,17 @@ def test_frequency_masker_uses_img_lens_and_preserves_batch_padding():
 def test_low_and_high_pass_masks_are_complements():
     images, img_lens = _make_batch()
 
-    _, low_masks = frequency_masker(p=1.0)(images, img_lens)
-    _, high_masks = frequency_masker(p=0.0)(images, img_lens)
+    _, low_masks, low_filter_types = frequency_masker(p=1.0)(
+        images,
+        img_lens,
+    )
+    _, high_masks, high_filter_types = frequency_masker(p=0.0)(
+        images,
+        img_lens,
+    )
+
+    assert low_filter_types == ["low_pass", "low_pass"]
+    assert high_filter_types == ["high_pass", "high_pass"]
 
     for low_mask, high_mask in zip(low_masks, high_masks):
         assert torch.equal(
