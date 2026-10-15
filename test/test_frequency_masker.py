@@ -38,12 +38,21 @@ def test_frequency_masker_uses_img_lens_and_preserves_batch_padding():
 
 def test_low_and_high_pass_masks_are_complements():
     images, img_lens = _make_batch()
+    common_ratio = 0.1
 
-    _, low_masks, low_filter_types = frequency_masker(p=1.0)(
+    _, low_masks, low_filter_types = frequency_masker(
+        low_pass_radius_ratio=common_ratio,
+        high_pass_radius_ratio=common_ratio,
+        p=1.0,
+    )(
         images,
         img_lens,
     )
-    _, high_masks, high_filter_types = frequency_masker(p=0.0)(
+    _, high_masks, high_filter_types = frequency_masker(
+        low_pass_radius_ratio=common_ratio,
+        high_pass_radius_ratio=common_ratio,
+        p=0.0,
+    )(
         images,
         img_lens,
     )

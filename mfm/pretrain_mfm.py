@@ -38,7 +38,9 @@ def build_model(cfg, device):
         n_writers=cfg.multitask.n_writer,
         lambda_ocr=cfg.multitask.lambda_ocr,
         lambda_writer=cfg.multitask.lambda_writer,
-        radius_ratio=cfg.training.radius_ratio,
+        low_pass_radius_ratio=cfg.training.low_pass_radius_ratio,
+        high_pass_radius_ratio=cfg.training.high_pass_radius_ratio,
+
         p=cfg.training.low_pass_probability,
         upscale_factor=8,
     )

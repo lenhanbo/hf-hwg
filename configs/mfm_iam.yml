@@ -28,7 +28,8 @@ training:
   lr_scheduler:
     name: cosine
 
-  radius_ratio: 0.0714285714
+  low_pass_radius_ratio: 0.10
+  high_pass_radius_ratio: 0.10
   low_pass_probability: 0.5
 
   output_dir: runs/mfm_multitask_iam

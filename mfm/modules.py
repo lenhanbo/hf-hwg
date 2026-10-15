@@ -5,17 +5,23 @@ from mfm.loss import frequency_loss
 import torch
 
 def build_frequency_mask(height, width, radius_ratio ,filter_type, device):
-    x_center = (width // 2)
-    y_center = (height // 2)
-    row = torch.arange(0, width, 1, device=device)
-    col = torch.arange(0, height, 1, device=device)
-    Y, X = torch.meshgrid(col, row, indexing="ij")
+    fy = torch.fft.fftshift(torch.fft.fftfreq(height, d=1.0,device=device))
+    
+    fx = torch.fft.fftshift(torch.fft.fftfreq(width, d=1.0,device=device))
+
+    Y, X = torch.meshgrid(fy, fx, indexing='ij')
+
+    # x_center = (width // 2)
+    # y_center = (height // 2)
+    # row = torch.arange(0, width, 1, device=device)
+    # col = torch.arange(0, height, 1, device=device)
+    # Y, X = torch.meshgrid(col, row, indexing="ij")
     # distance =  torch.sqrt((X - x_center)**2 + (Y- y_center)**2)
     distance = torch.sqrt(  # thử dùng elipse
         X.square() + Y.square()
     )
-    radius = radius_ratio * min(height, width)
-    mask = distance <= radius
+    # radius = radius_ratio * min(height, width)
+    mask = distance <= radius_ratio
     if filter_type == "high_pass":
         mask = ~mask
 
@@ -58,9 +64,10 @@ def masked_spatial_mean(feat, img_lens,downscale=8):
 
 
 class frequency_masker(nn.Module):
-    def __init__(self, radius_ratio=16/224, p=0.5):
+    def __init__(self,low_pass_radius_ratio=0.4, high_pass_radius_ratio=0.1 , p=0.5):
         super().__init__()
-        self.radius_ratio = radius_ratio
+        self.low_pass_radius_ratio = low_pass_radius_ratio
+        self.high_pass_radius_ratio = high_pass_radius_ratio
         self.p = p
 
     def forward(self, imgs, img_lens):
@@ -72,15 +79,20 @@ class frequency_masker(nn.Module):
             width = int(img_lens[i].item())
             valid = imgs[i:i+1, :, :, :width]
             pass_prob =  torch.rand(()).item()
+            radius = None 
             if pass_prob < self.p:
                 filter_type = 'low_pass'
+                radius = self.low_pass_radius_ratio
             else :
                 filter_type = 'high_pass'
+                radius =self.high_pass_radius_ratio
             
             valid01 = (valid + 1.0)/2 # denormalize (0.5, 0.5) 
+
+
             mask = build_frequency_mask(height, 
                                         width, 
-                                        self.radius_ratio, 
+                                        radius, 
                                         filter_type, 
                                         imgs.device)
             
@@ -140,15 +152,16 @@ class WriterIdentity(nn.Module):
 
 class MFM_Pretrainer(nn.Module):
     def __init__(self, backbone, use_ocr=False, use_writer=False,
-                 lambda_ocr=0, lambda_writer=0, radius_ratio=16/224, p=0.5,
+                 lambda_ocr=0, lambda_writer=0, low_pass_radius_ratio=0.4,high_pass_radius_ratio=0.1, p=0.5,
                  n_writers=None, upscale_factor = 8, n_class = None
                  ):
         super().__init__()
         self.upscale_factor = upscale_factor
         self.backbone = backbone
-        self.masker = frequency_masker(radius_ratio=radius_ratio, p=p)
+        self.masker = frequency_masker(low_pass_radius_ratio=low_pass_radius_ratio, high_pass_radius_ratio=high_pass_radius_ratio, p=p)
         self.recon_head = ReconstructionHead(backbone.output_dim, 
                                              upscale_factor=self.upscale_factor)
+
         self.freq_loss = frequency_loss()
         self.use_ocr = use_ocr
         self.use_writer = use_writer

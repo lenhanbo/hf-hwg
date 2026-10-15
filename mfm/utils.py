@@ -24,8 +24,11 @@ def preview_frequency_mask(
     max_samples=4,
     save_path=None,
 ):
-    masker = frequency_masker(radius_ratio=radius_ratio, p=low_pass_probability)
-
+    frequency_masker(
+        low_pass_radius_ratio=radius_ratio,
+        high_pass_radius_ratio=radius_ratio,
+        p=low_pass_probability,
+    )
     imgs = imgs[:min(max_samples, imgs.shape[0]),:]
     img_lens = img_lens[:min(max_samples, img_lens.shape[0])]
     corrupted_imgs, _, filter_types = masker(imgs, img_lens)
