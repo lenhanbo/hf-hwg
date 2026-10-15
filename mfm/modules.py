@@ -10,7 +10,10 @@ def build_frequency_mask(height, width, radius_ratio ,filter_type, device):
     row = torch.arange(0, width, 1, device=device)
     col = torch.arange(0, height, 1, device=device)
     Y, X = torch.meshgrid(col, row, indexing="ij")
-    distance =  torch.sqrt((X - x_center)**2 + (Y- y_center)**2)
+    # distance =  torch.sqrt((X - x_center)**2 + (Y- y_center)**2)
+    distance = torch.sqrt(  # thử dùng elipse
+        X.square() + Y.square()
+    )
     radius = radius_ratio * min(height, width)
     mask = distance <= radius
     if filter_type == "high_pass":
