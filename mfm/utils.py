@@ -24,14 +24,14 @@ def preview_frequency_mask(
     max_samples=4,
     save_path=None,
 ):
-    frequency_masker(
+    masker = frequency_masker(
         low_pass_radius_ratio=radius_ratio,
         high_pass_radius_ratio=radius_ratio,
         p=low_pass_probability,
     )
     imgs = imgs[:min(max_samples, imgs.shape[0]),:]
     img_lens = img_lens[:min(max_samples, img_lens.shape[0])]
-    corrupted_imgs, _, filter_types = frequency_masker(imgs, img_lens)
+    corrupted_imgs, _, filter_types = masker(imgs, img_lens)
     clean_imgs = _to_display_image(imgs)
     corrupted_imgs = _to_display_image(corrupted_imgs)
     fig, axes = plt.subplots(
@@ -91,9 +91,8 @@ def preview_radius_ratio_sweep(
 ):
     """Visualize how several radius ratios affect the same handwriting image.
 
-    The comparison is deterministic: every ratio is applied to the same sample
-    for both low-pass and high-pass filtering.  ``radius_ratio`` is converted to
-    pixels by ``ratio * min(height, valid_width)``, exactly as in training.
+    The comparison is deterministic: every normalized frequency ratio is
+    applied to the same sample for both low-pass and high-pass filtering.
     """
     if imgs.ndim != 4 or imgs.shape[1] != 1:
         raise ValueError("imgs must have shape [B, 1, H, W]")
@@ -153,7 +152,6 @@ def preview_radius_ratio_sweep(
 
     summary = []
     for column, ratio in enumerate(ratios, start=1):
-        radius_px = ratio * min(height, width)
         low_mask = build_frequency_mask(
             height, width, ratio, "low_pass", imgs.device
         )
@@ -162,8 +160,6 @@ def preview_radius_ratio_sweep(
         )
         low_image = apply_frequency_mask(valid01, low_mask)[0, 0].cpu()
         high_image = apply_frequency_mask(valid01, high_mask)[0, 0].cpu()
-        low_mae = (low_image - clean).abs().mean().item()
-        high_mae = (high_image - clean).abs().mean().item()
 
         axes[0, column].imshow(
             low_mask[0, 0].cpu(), cmap="gray", vmin=0, vmax=1,
@@ -173,7 +169,6 @@ def preview_radius_ratio_sweep(
             low_image, cmap="gray", vmin=0, vmax=1,
             aspect="auto", interpolation="nearest"
         )
-        axes[1, column].set_title(f"MAE={low_mae:.3f}")
         axes[2, column].imshow(
             high_mask[0, 0].cpu(), cmap="gray", vmin=0, vmax=1,
             aspect="auto", interpolation="nearest"
@@ -182,17 +177,13 @@ def preview_radius_ratio_sweep(
             high_image, cmap="gray", vmin=0, vmax=1,
             aspect="auto", interpolation="nearest"
         )
-        axes[3, column].set_title(f"MAE={high_mae:.3f}")
-        axes[0, column].set_title(f"ratio={ratio:g}\nr={radius_px:.2f}px")
+        axes[0, column].set_title(f"ratio={ratio:g}")
 
         summary.append(
             {
                 "radius_ratio": ratio,
-                "radius_px": radius_px,
                 "low_pass_kept_fraction": low_mask.mean().item(),
                 "high_pass_kept_fraction": high_mask.mean().item(),
-                "low_pass_mae": low_mae,
-                "high_pass_mae": high_mae,
             }
         )
 
@@ -201,7 +192,7 @@ def preview_radius_ratio_sweep(
         axis.set_yticks([])
 
     fig.suptitle(
-        f"Frequency-mask radius sweep (sample={sample_index}, "
+        f"Frequency-mask ratio sweep (sample={sample_index}, "
         f"size={height}x{width})",
         fontsize=14,
     )

@@ -133,15 +133,12 @@ def main():
     )
 
     print(f"Saved comparison to: {args.output}")
-    print("ratio\tradius_px\tlow_kept\thigh_kept\tlow_mae\thigh_mae")
+    print("ratio\tlow_kept\thigh_kept")
     for item in summary:
         print(
             f"{item['radius_ratio']:.6f}\t"
-            f"{item['radius_px']:.2f}\t"
             f"{item['low_pass_kept_fraction']:.4f}\t"
-            f"{item['high_pass_kept_fraction']:.4f}\t"
-            f"{item['low_pass_mae']:.4f}\t"
-            f"{item['high_pass_mae']:.4f}"
+            f"{item['high_pass_kept_fraction']:.4f}"
         )
 
 
