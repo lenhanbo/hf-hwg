@@ -31,7 +31,7 @@ def preview_frequency_mask(
     )
     imgs = imgs[:min(max_samples, imgs.shape[0]),:]
     img_lens = img_lens[:min(max_samples, img_lens.shape[0])]
-    corrupted_imgs, _, filter_types = masker(imgs, img_lens)
+    corrupted_imgs, _, filter_types = frequency_masker(imgs, img_lens)
     clean_imgs = _to_display_image(imgs)
     corrupted_imgs = _to_display_image(corrupted_imgs)
     fig, axes = plt.subplots(
